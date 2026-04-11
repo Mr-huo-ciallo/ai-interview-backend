@@ -197,6 +197,7 @@ def generate_report(data: InterviewSubmitRequest):
                 "totalScore": total_score
             }
         })
+        # print("LLM 调用成功，返回结果：", llm_result)
 
         if llm_result.get("strengths"):
             strengths = llm_result["strengths"]
