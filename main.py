@@ -105,7 +105,7 @@ def get_questions(role: str = "java"):
 def generate_followup(data: FollowUpRequest):
     fallback_map = {
         "project": "你在这个项目中具体负责哪些模块？遇到过什么技术难点？",
-        "technical": "你能结合实际项目，再具体说说它是如何使用或实现的吗？",
+        "technical": "你能进一步解释一下这个技术点背后的原理或适用场景吗？",
         "scenario": "如果让你一步步落地解决，你会先从哪一步开始排查？"
     }
 
@@ -132,8 +132,6 @@ def generate_followup(data: FollowUpRequest):
     return {
         "followUpQuestion": follow_up_question
     }
-
-
 @app.post("/api/report/generate")
 def generate_report(data: InterviewSubmitRequest):
     answer_texts = []

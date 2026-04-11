@@ -105,17 +105,97 @@ def call_llm_for_feedback(payload: dict):
     }
 
 
+def detect_followup_mode(payload: dict) -> str:
+    answer = payload["answer"].strip()
+    q_type = payload["type"]
+
+    answer_lower = answer.lower()
+
+    short_threshold = len(answer) < 40
+    has_project_signals = any(word in answer for word in ["项目", "负责", "实现", "优化", "模块"])
+    has_logic_signals = any(word in answer for word in ["首先", "其次", "然后", "最后", "排查", "分析", "方案"])
+    has_principle_signals = any(word in answer_lower for word in [
+        "redis", "mysql", "spring", "vue", "react", "索引", "缓存", "事务", "组件", "性能"
+    ])
+
+    if q_type == "project":
+        if short_threshold or not has_project_signals:
+            return "project_detail"
+        return "verification"
+
+    if q_type == "technical":
+        if short_threshold or not has_principle_signals:
+            return "technical_principle"
+        return "verification"
+
+    if q_type == "scenario":
+        if short_threshold or not has_logic_signals:
+            return "scenario_analysis"
+        return "verification"
+
+    return "verification"
+
+
 def build_followup_prompt(payload: dict) -> str:
+    followup_mode = payload["followUpMode"]
+
+    mode_instruction_map = {
+        "project_detail": """
+请优先生成“项目深挖型追问”。
+重点追问：
+- 候选人在项目中的具体职责
+- 技术难点
+- 技术方案选择原因
+- 实际优化效果
+""".strip(),
+
+        "technical_principle": """
+请优先生成“技术原理型追问”。
+重点追问：
+- 底层原理
+- 为什么这样设计
+- 适用场景
+- 优缺点或局限
+""".strip(),
+
+        "scenario_analysis": """
+请优先生成“场景分析型追问”。
+重点追问：
+- 排查顺序
+- 分析思路
+- 解决方案
+- 取舍和验证方式
+""".strip(),
+
+        "verification": """
+请优先生成“反问验证型追问”。
+重点追问：
+- 候选人是否真正理解刚才的回答
+- 方案可能的风险或改进点
+- 如果条件变化，方案是否仍成立
+""".strip()
+    }
+
+    mode_instruction = mode_instruction_map.get(
+        followup_mode,
+        mode_instruction_map["verification"]
+    )
+
     return f"""
 你是一名技术面试官，请基于候选人的目标岗位、题目类型、当前题目和候选人的回答，生成一个更深入、更具体的追问问题。
 
-要求：
+本次追问类型：{followup_mode}
+
+附加要求：
+{mode_instruction}
+
+通用要求：
 1. 只输出一句追问问题
 2. 追问必须和当前回答强相关
 3. 追问要体现技术面试风格
-4. 如果候选人回答太泛泛，就追问“具体负责什么/如何实现/遇到什么问题”
-5. 如果候选人回答缺少技术细节，就追问“原理/实现/优化/排查”
-6. 不要输出解释，不要输出编号，不要输出 JSON
+4. 不要输出解释，不要输出编号，不要输出 JSON
+5. 不要总是重复“你能详细介绍如何在项目中应用吗”这类表达
+6. 尽量让追问更自然、更有针对性
 
 目标岗位：{payload["roleName"]}
 题型：{payload["type"]}
@@ -128,7 +208,12 @@ def call_llm_for_followup(payload: dict) -> str:
     if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
         raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
 
-    prompt = build_followup_prompt(payload)
+    followup_mode = detect_followup_mode(payload)
+
+    prompt = build_followup_prompt({
+        **payload,
+        "followUpMode": followup_mode
+    })
 
     body = {
         "model": LLM_MODEL,
@@ -142,7 +227,7 @@ def call_llm_for_followup(payload: dict) -> str:
                 "content": prompt
             }
         ],
-        "temperature": 0.4
+        "temperature": 0.6
     }
 
     headers = {
