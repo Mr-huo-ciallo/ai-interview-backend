@@ -18,15 +18,22 @@ def build_prompt(payload: dict) -> str:
         answer_text.append(
             f"第{idx}题\n"
             f"题型：{item.get('type', '')}\n"
+            f"难度：{item.get('difficulty', '')}\n"
+            f"标签：{item.get('tags', '')}\n"
             f"问题：{item.get('question', '')}\n"
-            f"回答：{item.get('answer', '')}\n"
-            f"追问回答：{item.get('followUpAnswer', '')}\n"
+            f"关键点：{item.get('keyPoints', '')}\n"
+            f"评分重点：{item.get('scoringFocus', '')}\n"
+            f"基础参考回答：{item.get('referenceAnswerBasic', '')}\n"
+            f"优秀参考回答：{item.get('referenceAnswerGood', '')}\n"
+            f"候选人主回答：{item.get('answer', '')}\n"
+            f"AI追问：{item.get('followUpQuestion', '')}\n"
+            f"候选人追问回答：{item.get('followUpAnswer', '')}\n"
         )
 
     answer_block = "\n".join(answer_text)
 
     prompt = f"""
-你是一名技术面试评估助手。请根据候选人的岗位、题目、回答内容，以及系统提供的规则评分，生成结构化评估结果。
+你是一名技术面试评估助手。请根据候选人的岗位、题目、回答内容、题目关键点、评分重点，以及系统提供的参考回答和规则评分，生成结构化评估结果。
 
 目标岗位：{role_name}
 
@@ -37,7 +44,7 @@ def build_prompt(payload: dict) -> str:
 - 岗位匹配度分：{scores["matchScore"]}
 - 综合得分：{scores["totalScore"]}
 
-作答内容：
+作答信息：
 {answer_block}
 
 请严格输出 JSON，且不要输出任何额外解释。格式如下：
@@ -48,11 +55,13 @@ def build_prompt(payload: dict) -> str:
 }}
 
 要求：
-1. strengths / weaknesses / suggestions 都返回数组
+1. strengths / weaknesses / suggestions 都必须是数组
 2. 每个数组建议 2 到 4 条
-3. 内容必须贴合计算机技术岗位面试场景
-4. 语言简洁、具体、可执行
-5. 不要输出 markdown，不要加代码块
+3. 反馈必须结合题目的关键点和评分重点
+4. 要明确指出候选人的回答答到了哪些关键点，缺少哪些关键点
+5. 可以参考“优秀参考回答”的思路，但不要照抄
+6. 语言简洁、具体、可执行
+7. 不要输出 markdown，不要加代码块
 """.strip()
 
     return prompt

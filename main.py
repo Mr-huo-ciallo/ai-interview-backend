@@ -13,7 +13,8 @@ from crud import (
     get_questions_by_role,
     get_all_questions,
     add_question,
-    delete_question
+    delete_question,
+    get_question_by_role_and_content
 )
 from scoring.rules import (
     calculate_tech_score,
@@ -142,88 +143,109 @@ def generate_report(data: InterviewSubmitRequest):
             merged_text += " " + follow_up_answer
         answer_texts.append(merged_text)
 
-    answer_items = [item.model_dump() for item in data.answers]
-
-    tech_score = calculate_tech_score(data.role, answer_texts)
-    expression_score = calculate_expression_score(answer_texts)
-    logic_score = calculate_logic_score(answer_texts)
-    match_score = calculate_match_score(data.role, answer_texts)
-
-    bonus_result = calculate_type_bonus(data.role, answer_items)
-
-    tech_score = min(tech_score + bonus_result["tech_bonus"], 95)
-    expression_score = min(expression_score + bonus_result["expression_bonus"], 95)
-    logic_score = min(logic_score + bonus_result["logic_bonus"], 95)
-    match_score = min(match_score + bonus_result["match_bonus"], 95)
-
-    total_score = calculate_total_score(
-        data.role,
-        tech_score,
-        expression_score,
-        logic_score,
-        match_score
-    )
-
-    strengths = generate_strengths(
-        data.role,
-        tech_score,
-        expression_score,
-        logic_score,
-        match_score
-    )
-
-    weaknesses = generate_weaknesses(
-        data.role,
-        tech_score,
-        expression_score,
-        logic_score,
-        match_score
-    )
-
-    suggestions = generate_suggestions(data.role)
-
+    db = SessionLocal()
     try:
-        llm_result = call_llm_for_feedback({
+        enriched_answers = []
+
+        for item in data.answers:
+            question_meta = get_question_by_role_and_content(db, data.role, item.question)
+
+            enriched_answers.append({
+                "question": item.question,
+                "type": item.type,
+                "answer": item.answer,
+                "followUpQuestion": item.followUpQuestion,
+                "followUpAnswer": item.followUpAnswer,
+                "difficulty": question_meta.get("difficulty") if question_meta else "",
+                "tags": question_meta.get("tags") if question_meta else "",
+                "keyPoints": question_meta.get("keyPoints") if question_meta else "",
+                "scoringFocus": question_meta.get("scoringFocus") if question_meta else "",
+                "referenceAnswerBasic": question_meta.get("referenceAnswerBasic") if question_meta else "",
+                "referenceAnswerGood": question_meta.get("referenceAnswerGood") if question_meta else "",
+                "followupFocus": question_meta.get("followupFocus") if question_meta else "",
+                "followupExamples": question_meta.get("followupExamples") if question_meta else ""
+            })
+
+        tech_score = calculate_tech_score(data.role, answer_texts)
+        expression_score = calculate_expression_score(answer_texts)
+        logic_score = calculate_logic_score(answer_texts)
+        match_score = calculate_match_score(data.role, answer_texts)
+
+        bonus_result = calculate_type_bonus(data.role, [item.model_dump() for item in data.answers])
+
+        tech_score = min(tech_score + bonus_result["tech_bonus"], 95)
+        expression_score = min(expression_score + bonus_result["expression_bonus"], 95)
+        logic_score = min(logic_score + bonus_result["logic_bonus"], 95)
+        match_score = min(match_score + bonus_result["match_bonus"], 95)
+
+        total_score = calculate_total_score(
+            data.role,
+            tech_score,
+            expression_score,
+            logic_score,
+            match_score
+        )
+
+        strengths = generate_strengths(
+            data.role,
+            tech_score,
+            expression_score,
+            logic_score,
+            match_score
+        )
+
+        weaknesses = generate_weaknesses(
+            data.role,
+            tech_score,
+            expression_score,
+            logic_score,
+            match_score
+        )
+
+        suggestions = generate_suggestions(data.role)
+
+        try:
+            llm_result = call_llm_for_feedback({
+                "role": data.role,
+                "roleName": data.roleName,
+                "answers": enriched_answers,
+                "scores": {
+                    "techScore": tech_score,
+                    "expressionScore": expression_score,
+                    "logicScore": logic_score,
+                    "matchScore": match_score,
+                    "totalScore": total_score
+                }
+            })
+
+            if llm_result.get("strengths"):
+                strengths = llm_result["strengths"]
+
+            if llm_result.get("weaknesses"):
+                weaknesses = llm_result["weaknesses"]
+
+            if llm_result.get("suggestions"):
+                suggestions = llm_result["suggestions"]
+
+        except Exception as e:
+            print("LLM 调用失败，已回退到规则反馈：", e)
+
+        return {
             "role": data.role,
             "roleName": data.roleName,
-            "answers": answer_items,
-            "scores": {
-                "techScore": tech_score,
-                "expressionScore": expression_score,
-                "logicScore": logic_score,
-                "matchScore": match_score,
-                "totalScore": total_score
-            }
-        })
-        # print("LLM 调用成功，返回结果：", llm_result)
-
-        if llm_result.get("strengths"):
-            strengths = llm_result["strengths"]
-
-        if llm_result.get("weaknesses"):
-            weaknesses = llm_result["weaknesses"]
-
-        if llm_result.get("suggestions"):
-            suggestions = llm_result["suggestions"]
-
-    except Exception as e:
-        print("LLM 调用失败，已回退到规则反馈：", e)
-
-    return {
-        "role": data.role,
-        "roleName": data.roleName,
-        "submitTime": data.submitTime,
-        "answerCount": len(data.answers),
-        "totalScore": total_score,
-        "techScore": tech_score,
-        "expressionScore": expression_score,
-        "logicScore": logic_score,
-        "matchScore": match_score,
-        "strengths": strengths,
-        "weaknesses": weaknesses,
-        "suggestions": suggestions
-    }
-
+            "submitTime": data.submitTime,
+            "answerCount": len(data.answers),
+            "totalScore": total_score,
+            "techScore": tech_score,
+            "expressionScore": expression_score,
+            "logicScore": logic_score,
+            "matchScore": match_score,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "suggestions": suggestions
+        }
+    finally:
+        db.close()
 
 @app.post("/api/history/add")
 def add_history(record: HistoryRecord):

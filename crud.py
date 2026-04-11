@@ -117,3 +117,17 @@ def delete_question(db: Session, question_id: int):
     db.delete(question)
     db.commit()
     return True
+def get_question_by_role_and_content(db: Session, role: str, content: str):
+    item = (
+        db.query(InterviewQuestionModel)
+        .filter(
+            InterviewQuestionModel.role == role,
+            InterviewQuestionModel.content == content
+        )
+        .first()
+    )
+
+    if not item:
+        return None
+
+    return serialize_question(item)
