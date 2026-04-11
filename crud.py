@@ -40,6 +40,24 @@ def clear_history_records(db: Session):
     db.commit()
 
 
+def serialize_question(item: InterviewQuestionModel):
+    return {
+        "id": item.id,
+        "role": item.role,
+        "type": item.type,
+        "content": item.content,
+        "sortOrder": item.sort_order,
+        "difficulty": item.difficulty,
+        "tags": item.tags,
+        "keyPoints": item.key_points,
+        "scoringFocus": item.scoring_focus,
+        "referenceAnswerBasic": item.reference_answer_basic,
+        "referenceAnswerGood": item.reference_answer_good,
+        "followupFocus": item.followup_focus,
+        "followupExamples": item.followup_examples
+    }
+
+
 def get_questions_by_role(db: Session, role: str):
     records = (
         db.query(InterviewQuestionModel)
@@ -48,16 +66,7 @@ def get_questions_by_role(db: Session, role: str):
         .all()
     )
 
-    return [
-        {
-            "id": item.id,
-            "role": item.role,
-            "type": item.type,
-            "content": item.content,
-            "sortOrder": item.sort_order
-        }
-        for item in records
-    ]
+    return [serialize_question(item) for item in records]
 
 
 def get_all_questions(db: Session, role: str | None = None):
@@ -72,16 +81,7 @@ def get_all_questions(db: Session, role: str | None = None):
         InterviewQuestionModel.id.asc()
     ).all()
 
-    return [
-        {
-            "id": item.id,
-            "role": item.role,
-            "type": item.type,
-            "content": item.content,
-            "sortOrder": item.sort_order
-        }
-        for item in records
-    ]
+    return [serialize_question(item) for item in records]
 
 
 def add_question(db: Session, question_data: dict):
@@ -89,19 +89,21 @@ def add_question(db: Session, question_data: dict):
         role=question_data["role"],
         type=question_data["type"],
         content=question_data["content"],
-        sort_order=question_data["sortOrder"]
+        sort_order=question_data.get("sortOrder", 1),
+        difficulty=question_data.get("difficulty", "medium"),
+        tags=question_data.get("tags"),
+        key_points=question_data.get("keyPoints"),
+        scoring_focus=question_data.get("scoringFocus"),
+        reference_answer_basic=question_data.get("referenceAnswerBasic"),
+        reference_answer_good=question_data.get("referenceAnswerGood"),
+        followup_focus=question_data.get("followupFocus"),
+        followup_examples=question_data.get("followupExamples")
     )
     db.add(question)
     db.commit()
     db.refresh(question)
 
-    return {
-        "id": question.id,
-        "role": question.role,
-        "type": question.type,
-        "content": question.content,
-        "sortOrder": question.sort_order
-    }
+    return serialize_question(question)
 
 
 def delete_question(db: Session, question_id: int):
