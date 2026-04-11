@@ -105,33 +105,103 @@ def call_llm_for_feedback(payload: dict):
     }
 
 
-def detect_followup_mode(payload: dict) -> str:
+def analyze_answer_quality(payload: dict) -> dict:
     answer = payload["answer"].strip()
     q_type = payload["type"]
-
     answer_lower = answer.lower()
 
-    short_threshold = len(answer) < 40
-    has_project_signals = any(word in answer for word in ["项目", "负责", "实现", "优化", "模块"])
-    has_logic_signals = any(word in answer for word in ["首先", "其次", "然后", "最后", "排查", "分析", "方案"])
-    has_principle_signals = any(word in answer_lower for word in [
-        "redis", "mysql", "spring", "vue", "react", "索引", "缓存", "事务", "组件", "性能"
-    ])
+    length_score = len(answer)
+
+    project_words = ["项目", "负责", "模块", "实现", "优化", "难点", "接口", "数据库", "缓存"]
+    technical_words = [
+        "redis", "mysql", "spring", "spring boot", "vue", "react",
+        "索引", "缓存", "事务", "组件", "性能", "原理", "机制"
+    ]
+    scenario_words = ["首先", "其次", "然后", "最后", "排查", "分析", "方案", "优化", "验证", "定位"]
+
+    # 技术题更强的深度信号
+    technical_depth_words = [
+        "过期时间", "一致性", "穿透", "击穿", "雪崩",
+        "热点数据", "数据库压力", "单线程", "高并发",
+        "持久化", "哨兵", "集群", "锁", "降级", "限流"
+    ]
+
+    def count_hits(words):
+        return sum(1 for word in words if word.lower() in answer_lower or word in answer)
+
+    project_hits = count_hits(project_words)
+    technical_hits = count_hits(technical_words)
+    scenario_hits = count_hits(scenario_words)
+    technical_depth_hits = count_hits(technical_depth_words)
 
     if q_type == "project":
-        if short_threshold or not has_project_signals:
+        if length_score < 35 or project_hits < 2:
+            level = "brief"
+        elif length_score < 100 or project_hits < 4:
+            level = "medium"
+        else:
+            level = "complete"
+
+    elif q_type == "technical":
+        # 技术题要更强调“深度信号”
+        if length_score < 30 or technical_hits < 2:
+            level = "brief"
+        elif technical_depth_hits >= 2 or length_score >= 90:
+            level = "complete"
+        else:
+            level = "medium"
+
+    elif q_type == "scenario":
+        if length_score < 35 or scenario_hits < 2:
+            level = "brief"
+        elif length_score < 100 or scenario_hits < 4:
+            level = "medium"
+        else:
+            level = "complete"
+    else:
+        if length_score < 40:
+            level = "brief"
+        elif length_score < 100:
+            level = "medium"
+        else:
+            level = "complete"
+
+    return {
+        "level": level,
+        "project_hits": project_hits,
+        "technical_hits": technical_hits,
+        "scenario_hits": scenario_hits,
+        "technical_depth_hits": technical_depth_hits,
+        "length": length_score
+    }
+
+
+def detect_followup_mode(payload: dict) -> str:
+    q_type = payload["type"]
+    quality = analyze_answer_quality(payload)
+    level = quality["level"]
+
+    if q_type == "project":
+        if level == "brief":
+            return "project_brief"
+        if level == "medium":
             return "project_detail"
-        return "verification"
+        return "project_verification"
 
     if q_type == "technical":
-        if short_threshold or not has_principle_signals:
+        # 技术题三段明确分流
+        if level == "brief":
+            return "technical_usage"
+        if level == "medium":
             return "technical_principle"
-        return "verification"
+        return "technical_verification"
 
     if q_type == "scenario":
-        if short_threshold or not has_logic_signals:
+        if level == "brief":
+            return "scenario_brief"
+        if level == "medium":
             return "scenario_analysis"
-        return "verification"
+        return "scenario_tradeoff"
 
     return "verification"
 
@@ -140,39 +210,129 @@ def build_followup_prompt(payload: dict) -> str:
     followup_mode = payload["followUpMode"]
 
     mode_instruction_map = {
+        "project_brief": """
+请生成“项目补细节型追问”。
+目标：
+- 补充候选人刚才没有说清楚的职责、模块、实现内容
+- 优先问具体负责什么、怎么实现、做了什么优化
+禁止：
+- 不要问抽象空泛问题
+- 不要问“能否详细介绍如何在项目中应用”这类宽泛句式
+""".strip(),
+
         "project_detail": """
-请优先生成“项目深挖型追问”。
-重点追问：
-- 候选人在项目中的具体职责
-- 技术难点
-- 技术方案选择原因
-- 实际优化效果
+请生成“项目深挖型追问”。
+目标：
+- 深挖技术难点
+- 深挖方案选择原因
+- 深挖优化效果
+禁止：
+- 不要退回到只问“你具体负责什么”
+""".strip(),
+
+        "project_verification": """
+请生成“项目验证型追问”。
+目标：
+- 验证候选人是否真的理解方案
+- 追问改进点、局限性、边界情况、重做思路
+强约束：
+- 如果候选人的回答已经包含项目职责、技术方案或优化过程，请不要再追问“你具体做了什么”或“你如何应用”
+- 应优先追问“为什么这样选”“如果重做会如何改进”“这种方案什么时候不适用”
+""".strip(),
+
+        "technical_usage": """
+请生成“技术用途补充型追问”。
+适用场景：
+- 候选人只说了这个技术点“用来做什么”
+- 但没有说项目中怎么落地、解决了什么具体问题
+
+目标：
+- 追问项目中的具体使用方式
+- 追问为什么需要用它
+- 追问它解决了什么实际问题
+
+强约束：
+- 不要问“原理是什么”
+- 不要问“适用场景是什么”
+- 不要生成宽泛问题
+优先问法：
+- 你们项目里哪些数据会放到 Redis？
+- 为什么这些数据适合放缓存？
+- 你是如何设置缓存过期时间的？
 """.strip(),
 
         "technical_principle": """
-请优先生成“技术原理型追问”。
-重点追问：
-- 底层原理
-- 为什么这样设计
-- 适用场景
-- 优缺点或局限
+请生成“技术原理型追问”。
+适用场景：
+- 候选人已经提到了项目中如何用
+- 但还没有讲清底层机制或为什么有效
+
+目标：
+- 追问底层原理
+- 追问为什么这样设计
+- 追问为什么能解决问题
+
+强约束：
+- 不要再问“项目里怎么用”
+- 不要只问“适用场景”
+优先问法：
+- Redis 相比直接查 MySQL，为什么性能更高？
+- 缓存为什么会带来一致性问题？
+- 这个方案为什么能减少数据库压力？
+""".strip(),
+
+        "technical_verification": """
+请生成“技术验证型追问”。
+适用场景：
+- 候选人已经提到了用途、实现方式，甚至还提到了过期时间、一致性、穿透、击穿、雪崩等内容
+
+目标：
+- 验证候选人是否真正理解该技术点
+- 优先追问局限、边界、风险、取舍、替代方案、改进点
+
+强约束：
+- 如果候选人的回答已经提到了 Redis 的用途、缓存目标、过期时间或缓存问题，请不要再追问“原理或适用场景”
+- 不要再问“它怎么应用”
+- 不要再问“项目里怎么使用”
+优先问法：
+- 你们是如何处理缓存与数据库一致性的？
+- 如果缓存大面积同时失效，会有什么风险？
+- 在什么情况下 Redis 反而可能带来问题？
+- 如果让你重新设计这套缓存方案，你会改进什么？
+""".strip(),
+
+        "scenario_brief": """
+请生成“场景补步骤型追问”。
+目标：
+- 补充排查顺序
+- 补充分析步骤
+- 补充落地方案
 """.strip(),
 
         "scenario_analysis": """
-请优先生成“场景分析型追问”。
-重点追问：
-- 排查顺序
-- 分析思路
-- 解决方案
-- 取舍和验证方式
+请生成“场景分析型追问”。
+目标：
+- 深挖排查思路
+- 深挖验证方法
+- 深挖解决路径
+""".strip(),
+
+        "scenario_tradeoff": """
+请生成“场景取舍型追问”。
+目标：
+- 追问方案之间的取舍
+- 追问约束条件变化后的处理
+- 追问线上环境限制下的决策
+强约束：
+- 不要再问“先做什么”
+- 优先问“如果不能重启怎么办”“如果代价过高怎么办”“如何权衡方案”
 """.strip(),
 
         "verification": """
-请优先生成“反问验证型追问”。
-重点追问：
-- 候选人是否真正理解刚才的回答
-- 方案可能的风险或改进点
-- 如果条件变化，方案是否仍成立
+请生成“反问验证型追问”。
+目标：
+- 检查候选人是否真正理解刚才的回答
+- 优先问改进点、局限、风险、边界情况
 """.strip()
     }
 
@@ -195,7 +355,8 @@ def build_followup_prompt(payload: dict) -> str:
 3. 追问要体现技术面试风格
 4. 不要输出解释，不要输出编号，不要输出 JSON
 5. 不要总是重复“你能详细介绍如何在项目中应用吗”这类表达
-6. 尽量让追问更自然、更有针对性
+6. 问法要自然，像真实面试官
+7. 问题要尽量有区分度，不要和低质量回答时的追问过于相似
 
 目标岗位：{payload["roleName"]}
 题型：{payload["type"]}
@@ -209,7 +370,7 @@ def call_llm_for_followup(payload: dict) -> str:
         raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
 
     followup_mode = detect_followup_mode(payload)
-
+    print("当前追问模式：", followup_mode)
     prompt = build_followup_prompt({
         **payload,
         "followUpMode": followup_mode
@@ -227,7 +388,7 @@ def call_llm_for_followup(payload: dict) -> str:
                 "content": prompt
             }
         ],
-        "temperature": 0.6
+        "temperature": 0.7
     }
 
     headers = {
