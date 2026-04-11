@@ -2,8 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from llm_client import call_llm_for_feedback, call_llm_for_followup
 
+from llm_client import call_llm_for_feedback, call_llm_for_followup
 from db import SessionLocal, engine, Base
 from models import HistoryRecordModel, InterviewQuestionModel
 from crud import (
@@ -39,12 +39,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class FollowUpRequest(BaseModel):
     role: str
     roleName: str
     question: str
     type: str
     answer: str
+
 
 class AnswerItem(BaseModel):
     question: str
@@ -131,6 +133,7 @@ def generate_followup(data: FollowUpRequest):
         "followUpQuestion": follow_up_question
     }
 
+
 @app.post("/api/report/generate")
 def generate_report(data: InterviewSubmitRequest):
     answer_texts = []
@@ -138,8 +141,9 @@ def generate_report(data: InterviewSubmitRequest):
         merged_text = item.answer
         follow_up_answer = getattr(item, "followUpAnswer", "")
         if follow_up_answer:
-         merged_text += " " + follow_up_answer
-    answer_texts.append(merged_text)
+            merged_text += " " + follow_up_answer
+        answer_texts.append(merged_text)
+
     answer_items = [item.model_dump() for item in data.answers]
 
     tech_score = calculate_tech_score(data.role, answer_texts)
@@ -162,7 +166,6 @@ def generate_report(data: InterviewSubmitRequest):
         match_score
     )
 
-    # 规则版兜底
     strengths = generate_strengths(
         data.role,
         tech_score,
@@ -181,7 +184,6 @@ def generate_report(data: InterviewSubmitRequest):
 
     suggestions = generate_suggestions(data.role)
 
-    # 尝试调用大模型优化评语
     try:
         llm_result = call_llm_for_feedback({
             "role": data.role,
@@ -195,7 +197,6 @@ def generate_report(data: InterviewSubmitRequest):
                 "totalScore": total_score
             }
         })
-        # print("LLM 调用成功，返回结果：", llm_result)
 
         if llm_result.get("strengths"):
             strengths = llm_result["strengths"]
