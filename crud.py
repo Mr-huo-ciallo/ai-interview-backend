@@ -1,6 +1,7 @@
 import json
 from sqlalchemy.orm import Session
 from models import UserModel, HistoryRecordModel, InterviewQuestionModel
+from collections import Counter
 
 
 def add_history_record(db: Session, record: dict):
@@ -200,3 +201,90 @@ def get_user_by_username(db: Session, username: str):
 
 def get_user_by_id(db: Session, user_id: int):
     return db.query(UserModel).filter(UserModel.id == user_id).first()
+
+def get_user_history_summary(db: Session, user_id: int):
+    records = (
+        db.query(HistoryRecordModel)
+        .filter(HistoryRecordModel.user_id == user_id)
+        .order_by(HistoryRecordModel.id.desc())
+        .all()
+    )
+
+    if not records:
+        return {
+            "interviewCount": 0,
+            "avgScore": 0,
+            "bestScore": 0,
+            "worstScore": 0,
+            "topRoles": [],
+            "topQuestionTypes": [],
+            "topTags": [],
+            "recommendedFocus": []
+        }
+
+    total_scores = [item.total_score for item in records]
+    avg_score = round(sum(total_scores) / len(total_scores), 1)
+    best_score = max(total_scores)
+    worst_score = min(total_scores)
+
+    role_counter = Counter()
+    question_type_counter = Counter()
+    tag_counter = Counter()
+
+    for record in records:
+        role_counter[record.role] += 1
+
+        answers = json.loads(record.answers_json)
+        for answer in answers:
+            q_type = answer.get("type")
+            question = answer.get("question")
+
+            if q_type:
+                question_type_counter[q_type] += 1
+
+            if question and record.role:
+                question_meta = (
+                    db.query(InterviewQuestionModel)
+                    .filter(
+                        InterviewQuestionModel.role == record.role,
+                        InterviewQuestionModel.content == question
+                    )
+                    .first()
+                )
+
+                if question_meta and question_meta.tags:
+                    raw_tags = question_meta.tags.replace("；", ",").replace("，", ",")
+                    tag_list = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+                    for tag in tag_list:
+                        tag_counter[tag] += 1
+
+    top_roles = [item[0] for item in role_counter.most_common(3)]
+    top_question_types = [item[0] for item in question_type_counter.most_common(3)]
+    top_tags = [item[0] for item in tag_counter.most_common(5)]
+
+    recommended_focus = []
+
+    if "Redis" in top_tags or "缓存" in top_tags:
+        recommended_focus.append("建议继续强化 Redis、缓存一致性与高并发场景相关知识点。")
+    if "MySQL" in top_tags or "索引" in top_tags:
+        recommended_focus.append("建议重点复习 MySQL 索引、执行计划与 SQL 优化。")
+    if "前端性能优化" in top_tags or "性能优化" in top_tags:
+        recommended_focus.append("建议继续训练性能优化题，强化加载优化与渲染优化表达。")
+    if "项目经历" in top_tags or "项目题" in top_question_types:
+        recommended_focus.append("建议项目题继续按照“背景-职责-难点-结果”结构展开。")
+    if "scenario" in top_question_types:
+        recommended_focus.append("建议场景题回答中强化“排查顺序-分析依据-解决方案-验证结果”的表达。")
+
+    if not recommended_focus:
+        recommended_focus.append("建议继续扩大练习题覆盖范围，并针对薄弱知识点进行专项训练。")
+
+    return {
+        "interviewCount": len(records),
+        "avgScore": avg_score,
+        "bestScore": best_score,
+        "worstScore": worst_score,
+        "topRoles": top_roles,
+        "topQuestionTypes": top_question_types,
+        "topTags": top_tags,
+        "recommendedFocus": recommended_focus
+    }

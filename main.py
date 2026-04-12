@@ -20,7 +20,8 @@ from crud import (
     delete_question,
     get_question_by_id,
     update_question,
-    get_question_by_role_and_content
+    get_question_by_role_and_content,
+    get_user_history_summary
 )
 from scoring.rules import (
     calculate_tech_score,
@@ -441,6 +442,23 @@ def get_current_user(user_id: int):
                 "id": user.id,
                 "username": user.username
             }
+        }
+    finally:
+        db.close()
+@app.get("/api/profile/summary")
+def get_profile_summary(userId: int):
+    db = SessionLocal()
+    try:
+        user = get_user_by_id(db, userId)
+        if not user:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        summary = get_user_history_summary(db, userId)
+
+        return {
+            "userId": user.id,
+            "username": user.username,
+            **summary
         }
     finally:
         db.close()
