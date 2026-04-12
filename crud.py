@@ -106,6 +106,44 @@ def add_question(db: Session, question_data: dict):
     return serialize_question(question)
 
 
+def get_question_by_id(db: Session, question_id: int):
+    item = db.query(InterviewQuestionModel).filter(
+        InterviewQuestionModel.id == question_id
+    ).first()
+
+    if not item:
+        return None
+
+    return serialize_question(item)
+
+
+def update_question(db: Session, question_id: int, question_data: dict):
+    item = db.query(InterviewQuestionModel).filter(
+        InterviewQuestionModel.id == question_id
+    ).first()
+
+    if not item:
+        return None
+
+    item.role = question_data["role"]
+    item.type = question_data["type"]
+    item.content = question_data["content"]
+    item.sort_order = question_data.get("sortOrder", 1)
+    item.difficulty = question_data.get("difficulty", "medium")
+    item.tags = question_data.get("tags")
+    item.key_points = question_data.get("keyPoints")
+    item.scoring_focus = question_data.get("scoringFocus")
+    item.reference_answer_basic = question_data.get("referenceAnswerBasic")
+    item.reference_answer_good = question_data.get("referenceAnswerGood")
+    item.followup_focus = question_data.get("followupFocus")
+    item.followup_examples = question_data.get("followupExamples")
+
+    db.commit()
+    db.refresh(item)
+
+    return serialize_question(item)
+
+
 def delete_question(db: Session, question_id: int):
     question = db.query(InterviewQuestionModel).filter(
         InterviewQuestionModel.id == question_id
@@ -117,6 +155,8 @@ def delete_question(db: Session, question_id: int):
     db.delete(question)
     db.commit()
     return True
+
+
 def get_question_by_role_and_content(db: Session, role: str, content: str):
     item = (
         db.query(InterviewQuestionModel)

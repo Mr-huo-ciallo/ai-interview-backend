@@ -14,6 +14,8 @@ from crud import (
     get_all_questions,
     add_question,
     delete_question,
+    get_question_by_id,
+    update_question,
     get_question_by_role_and_content
 )
 from scoring.rules import (
@@ -78,6 +80,14 @@ class QuestionCreateRequest(BaseModel):
     type: str
     content: str
     sortOrder: int = 1
+    difficulty: str = "medium"
+    tags: str = ""
+    keyPoints: str = ""
+    scoringFocus: str = ""
+    referenceAnswerBasic: str = ""
+    referenceAnswerGood: str = ""
+    followupFocus: str = ""
+    followupExamples: str = ""
 
 
 @app.get("/")
@@ -306,7 +316,21 @@ def admin_add_question(data: QuestionCreateRequest):
         }
     finally:
         db.close()
+        
+@app.put("/api/admin/questions/{question_id}")
+def admin_update_question(question_id: int, data: QuestionCreateRequest):
+    db = SessionLocal()
+    try:
+        question = update_question(db, question_id, data.model_dump())
+        if not question:
+            raise HTTPException(status_code=404, detail="Question not found")
 
+        return {
+            "message": "question updated successfully",
+            "question": question
+        }
+    finally:
+        db.close()
 
 @app.delete("/api/admin/questions/{question_id}")
 def admin_delete_question(question_id: int):
