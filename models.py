@@ -3,10 +3,20 @@ from datetime import datetime
 from db import Base
 
 
+class UserModel(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    username = Column(String(50), nullable=False, unique=True, index=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class HistoryRecordModel(Base):
     __tablename__ = "history_records"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, nullable=True, index=True)
     role = Column(String(50), nullable=False)
     role_name = Column(String(100), nullable=False)
     total_score = Column(Integer, nullable=False)

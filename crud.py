@@ -1,10 +1,11 @@
 import json
 from sqlalchemy.orm import Session
-from models import HistoryRecordModel, InterviewQuestionModel
+from models import UserModel, HistoryRecordModel, InterviewQuestionModel
 
 
 def add_history_record(db: Session, record: dict):
     history = HistoryRecordModel(
+        user_id=record.get("userId"),
         role=record["role"],
         role_name=record["roleName"],
         total_score=record["totalScore"],
@@ -18,13 +19,19 @@ def add_history_record(db: Session, record: dict):
     return history
 
 
-def get_history_list(db: Session):
-    records = db.query(HistoryRecordModel).order_by(HistoryRecordModel.id.desc()).all()
+def get_history_list(db: Session, user_id: int | None = None):
+    query = db.query(HistoryRecordModel)
+
+    if user_id is not None:
+        query = query.filter(HistoryRecordModel.user_id == user_id)
+
+    records = query.order_by(HistoryRecordModel.id.desc()).all()
 
     result = []
     for item in records:
         result.append({
             "id": item.id,
+            "userId": item.user_id,
             "role": item.role,
             "roleName": item.role_name,
             "totalScore": item.total_score,
@@ -35,8 +42,13 @@ def get_history_list(db: Session):
     return result
 
 
-def clear_history_records(db: Session):
-    db.query(HistoryRecordModel).delete()
+def clear_history_records(db: Session, user_id: int | None = None):
+    query = db.query(HistoryRecordModel)
+
+    if user_id is not None:
+        query = query.filter(HistoryRecordModel.user_id == user_id)
+
+    query.delete()
     db.commit()
 
 
@@ -171,3 +183,20 @@ def get_question_by_role_and_content(db: Session, role: str, content: str):
         return None
 
     return serialize_question(item)
+def create_user(db: Session, username: str, password_hash: str):
+    user = UserModel(
+        username=username,
+        password_hash=password_hash
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def get_user_by_username(db: Session, username: str):
+    return db.query(UserModel).filter(UserModel.username == username).first()
+
+
+def get_user_by_id(db: Session, user_id: int):
+    return db.query(UserModel).filter(UserModel.id == user_id).first()

@@ -2,11 +2,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+from auth_utils import hash_password, verify_password
 
 from llm_client import call_llm_for_feedback, call_llm_for_followup
 from db import SessionLocal, engine, Base
 from models import HistoryRecordModel, InterviewQuestionModel
 from crud import (
+    create_user,
+    get_user_by_username,
+    get_user_by_id,
     add_history_record,
     get_history_list,
     clear_history_records,
@@ -42,6 +46,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 class FollowUpRequest(BaseModel):
     role: str
@@ -65,8 +77,8 @@ class InterviewSubmitRequest(BaseModel):
     answers: List[AnswerItem]
     submitTime: str
 
-
 class HistoryRecord(BaseModel):
+    userId: int | None = None
     role: str
     roleName: str
     totalScore: int
@@ -302,22 +314,21 @@ def add_history(record: HistoryRecord):
 
 
 @app.get("/api/history/list")
-def get_history():
+def get_history(userId: int | None = None):
     db = SessionLocal()
     try:
-        history = get_history_list(db)
+        history = get_history_list(db, userId)
         return {
             "history": history
         }
     finally:
         db.close()
 
-
 @app.delete("/api/history/clear")
-def clear_history():
+def clear_history(userId: int | None = None):
     db = SessionLocal()
     try:
-        clear_history_records(db)
+        clear_history_records(db, userId)
         return {
             "message": "history cleared successfully"
         }
@@ -374,6 +385,62 @@ def admin_delete_question(question_id: int):
 
         return {
             "message": "question deleted successfully"
+        }
+    finally:
+        db.close()
+@app.post("/api/auth/register")
+def register(data: RegisterRequest):
+    db = SessionLocal()
+    try:
+        existing_user = get_user_by_username(db, data.username)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="用户名已存在")
+
+        user = create_user(
+            db,
+            username=data.username,
+            password_hash=hash_password(data.password)
+        )
+
+        return {
+            "message": "register success",
+            "user": {
+                "id": user.id,
+                "username": user.username
+            }
+        }
+    finally:
+        db.close()
+@app.post("/api/auth/login")
+def login(data: LoginRequest):
+    db = SessionLocal()
+    try:
+        user = get_user_by_username(db, data.username)
+        if not user or not verify_password(data.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+        return {
+            "message": "login success",
+            "user": {
+                "id": user.id,
+                "username": user.username
+            }
+        }
+    finally:
+        db.close()
+@app.get("/api/auth/user/{user_id}")
+def get_current_user(user_id: int):
+    db = SessionLocal()
+    try:
+        user = get_user_by_id(db, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        return {
+            "user": {
+                "id": user.id,
+                "username": user.username
+            }
         }
     finally:
         db.close()
