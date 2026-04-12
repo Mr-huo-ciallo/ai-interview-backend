@@ -4,7 +4,11 @@ from pydantic import BaseModel
 from typing import List, Optional
 from auth_utils import hash_password, verify_password
 
-from llm_client import call_llm_for_feedback, call_llm_for_followup
+from llm_client import (
+    call_llm_for_feedback,
+    call_llm_for_followup,
+    call_llm_for_profile_summary
+)
 from db import SessionLocal, engine, Base
 from models import HistoryRecordModel, InterviewQuestionModel
 from crud import (
@@ -455,10 +459,25 @@ def get_profile_summary(userId: int):
 
         summary = get_user_history_summary(db, userId)
 
+        ai_summary = ""
+        ai_suggestions = []
+
+        try:
+            llm_result = call_llm_for_profile_summary({
+                "username": user.username,
+                **summary
+            })
+            ai_summary = llm_result.get("aiSummary", "")
+            ai_suggestions = llm_result.get("aiSuggestions", [])
+        except Exception as e:
+            print("个人成长摘要 AI 生成失败，已回退到规则摘要：", e)
+
         return {
             "userId": user.id,
             "username": user.username,
-            **summary
+            **summary,
+            "aiSummary": ai_summary,
+            "aiSuggestions": ai_suggestions
         }
     finally:
         db.close()

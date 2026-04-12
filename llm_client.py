@@ -434,3 +434,76 @@ def call_llm_for_followup(payload: dict) -> str:
     content = content.replace("```", "").strip()
 
     return content
+def build_profile_summary_prompt(payload: dict) -> str:
+    return f"""
+你是一名技术面试成长分析助手。请根据用户历史面试摘要，生成个性化成长总结。
+
+用户信息：
+- 用户名：{payload.get("username", "")}
+- 面试总次数：{payload.get("interviewCount", 0)}
+- 平均分：{payload.get("avgScore", 0)}
+- 最高分：{payload.get("bestScore", 0)}
+- 最低分：{payload.get("worstScore", 0)}
+- 最近常练岗位：{", ".join(payload.get("topRoles", []))}
+- 最近常见题型：{", ".join(payload.get("topQuestionTypes", []))}
+- 高频知识点标签：{", ".join(payload.get("topTags", []))}
+- 当前规则建议：{"；".join(payload.get("recommendedFocus", []))}
+
+请严格输出 JSON，不要输出额外解释，格式如下：
+{{
+  "aiSummary": "一段个性化成长总结",
+  "aiSuggestions": ["建议1", "建议2", "建议3"]
+}}
+
+要求：
+1. aiSummary 要像对候选人的阶段性分析，语言自然
+2. aiSuggestions 要具体、可执行，2到4条
+3. 要结合历史练习倾向、知识点覆盖和分数情况
+4. 不要输出 markdown，不要加代码块
+""".strip()
+
+
+def call_llm_for_profile_summary(payload: dict):
+    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
+        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
+
+    prompt = build_profile_summary_prompt(payload)
+
+    body = {
+        "model": LLM_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是一个严格输出 JSON 的技术面试成长分析助手。"
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.4
+    }
+
+    headers = {
+        "Authorization": f"Bearer {LLM_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(api_url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+
+    content = data["choices"][0]["message"]["content"].strip()
+
+    if content.startswith("```"):
+        content = content.replace("```json", "").replace("```", "").strip()
+
+    result = json.loads(content)
+
+    return {
+        "aiSummary": result.get("aiSummary", ""),
+        "aiSuggestions": result.get("aiSuggestions", [])
+    }
