@@ -210,6 +210,8 @@ def generate_report(data: InterviewSubmitRequest):
             match_score
         )
 
+        summary = "整体能够完成本次模拟面试，但部分回答仍可进一步补充技术细节和表达层次。"
+
         strengths = generate_strengths(
             data.role,
             tech_score,
@@ -228,6 +230,14 @@ def generate_report(data: InterviewSubmitRequest):
 
         suggestions = generate_suggestions(data.role)
 
+        question_reports = []
+        for item in enriched_answers:
+            question_reports.append({
+        "question": item["question"],
+        "comment": "本题已完成作答，但仍可进一步结合关键点展开说明。",
+        "advice": "建议围绕题目的核心考察点补充更多技术细节和实际场景。"
+    })
+
         try:
             llm_result = call_llm_for_feedback({
                 "role": data.role,
@@ -242,6 +252,9 @@ def generate_report(data: InterviewSubmitRequest):
                 }
             })
 
+            if llm_result.get("summary"):
+                summary = llm_result["summary"]
+
             if llm_result.get("strengths"):
                 strengths = llm_result["strengths"]
 
@@ -250,6 +263,9 @@ def generate_report(data: InterviewSubmitRequest):
 
             if llm_result.get("suggestions"):
                 suggestions = llm_result["suggestions"]
+
+            if llm_result.get("questionReports"):
+                question_reports = llm_result["questionReports"]
 
         except Exception as e:
             print("LLM 调用失败，已回退到规则反馈：", e)
@@ -264,9 +280,11 @@ def generate_report(data: InterviewSubmitRequest):
             "expressionScore": expression_score,
             "logicScore": logic_score,
             "matchScore": match_score,
+            "summary": summary,
             "strengths": strengths,
             "weaknesses": weaknesses,
-            "suggestions": suggestions
+            "suggestions": suggestions,
+            "questionReports": question_reports
         }
     finally:
         db.close()
