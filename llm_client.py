@@ -8,60 +8,141 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 
 
-def build_prompt(payload: dict) -> str:
-    role_name = payload["roleName"]
-    answers = payload["answers"]
-    scores = payload["scores"]
+def build_followup_prompt(payload: dict) -> str:
+    followup_mode = payload["followUpMode"]
 
-    answer_text = []
-    for idx, item in enumerate(answers, start=1):
-        answer_text.append(
-            f"第{idx}题\n"
-            f"题型：{item.get('type', '')}\n"
-            f"难度：{item.get('difficulty', '')}\n"
-            f"标签：{item.get('tags', '')}\n"
-            f"问题：{item.get('question', '')}\n"
-            f"关键点：{item.get('keyPoints', '')}\n"
-            f"评分重点：{item.get('scoringFocus', '')}\n"
-            f"基础参考回答：{item.get('referenceAnswerBasic', '')}\n"
-            f"优秀参考回答：{item.get('referenceAnswerGood', '')}\n"
-            f"候选人主回答：{item.get('answer', '')}\n"
-            f"AI追问：{item.get('followUpQuestion', '')}\n"
-            f"候选人追问回答：{item.get('followUpAnswer', '')}\n"
-        )
+    mode_instruction_map = {
+        "project_brief": """
+请生成“项目补细节型追问”。
+目标：
+- 补充候选人刚才没有说清楚的职责、模块、实现内容
+- 优先问具体负责什么、怎么实现、做了什么优化
+禁止：
+- 不要问抽象空泛问题
+- 不要问“能否详细介绍如何在项目中应用”这类宽泛句式
+""".strip(),
 
-    answer_block = "\n".join(answer_text)
+        "project_detail": """
+请生成“项目深挖型追问”。
+目标：
+- 深挖技术难点
+- 深挖方案选择原因
+- 深挖优化效果
+禁止：
+- 不要退回到只问“你具体负责什么”
+""".strip(),
 
-    prompt = f"""
-你是一名技术面试评估助手。请根据候选人的岗位、题目、回答内容、题目关键点、评分重点，以及系统提供的参考回答和规则评分，生成结构化评估结果。
+        "project_verification": """
+请生成“项目验证型追问”。
+目标：
+- 验证候选人是否真的理解方案
+- 追问改进点、局限性、边界情况、重做思路
+强约束：
+- 如果候选人的回答已经包含项目职责、技术方案或优化过程，请不要再追问“你具体做了什么”或“你如何应用”
+- 应优先追问“为什么这样选”“如果重做会如何改进”“这种方案什么时候不适用”
+""".strip(),
 
-目标岗位：{role_name}
+        "technical_usage": """
+请生成“技术用途补充型追问”。
+适用场景：
+- 候选人只说了这个技术点“用来做什么”
+- 但没有说项目中怎么落地、解决了什么具体问题
+强约束：
+- 不要问“原理是什么”
+- 不要问“适用场景是什么”
+""".strip(),
 
-规则评分：
-- 技术能力分：{scores["techScore"]}
-- 表达能力分：{scores["expressionScore"]}
-- 逻辑严谨性分：{scores["logicScore"]}
-- 岗位匹配度分：{scores["matchScore"]}
-- 综合得分：{scores["totalScore"]}
+        "technical_principle": """
+请生成“技术原理型追问”。
+适用场景：
+- 候选人已经提到了项目中如何用
+- 但还没有讲清底层机制或为什么有效
+强约束：
+- 不要再问“项目里怎么用”
+- 不要只问“适用场景”
+""".strip(),
 
-作答信息：
-{answer_block}
+        "technical_verification": """
+请生成“技术验证型追问”。
+适用场景：
+- 候选人已经提到了用途、实现方式，甚至还提到了过期时间、一致性、穿透、击穿、雪崩等内容
+强约束：
+- 如果候选人的回答已经提到了 Redis 的用途、缓存目标、过期时间或缓存问题，请不要再追问“原理或适用场景”
+- 不要再问“它怎么应用”
+- 不要再问“项目里怎么使用”
+- 优先问局限、边界、风险、取舍、替代方案、改进点
+""".strip(),
 
-请严格输出 JSON，且不要输出任何额外解释。格式如下：
-{{
-  "strengths": ["亮点1", "亮点2", "亮点3"],
-  "weaknesses": ["不足1", "不足2", "不足3"],
-  "suggestions": ["建议1", "建议2", "建议3"]
-}}
+        "scenario_brief": """
+请生成“场景补步骤型追问”。
+目标：
+- 补充排查顺序
+- 补充分析步骤
+- 补充落地方案
+""".strip(),
 
-要求：
-1. strengths / weaknesses / suggestions 都必须是数组
-2. 每个数组建议 2 到 4 条
-3. 反馈必须结合题目的关键点和评分重点
-4. 要明确指出候选人的回答答到了哪些关键点，缺少哪些关键点
-5. 可以参考“优秀参考回答”的思路，但不要照抄
-6. 语言简洁、具体、可执行
-7. 不要输出 markdown，不要加代码块
+        "scenario_analysis": """
+请生成“场景分析型追问”。
+目标：
+- 深挖排查思路
+- 深挖验证方法
+- 深挖解决路径
+""".strip(),
+
+        "scenario_tradeoff": """
+请生成“场景取舍型追问”。
+目标：
+- 追问方案之间的取舍
+- 追问约束条件变化后的处理
+- 追问线上环境限制下的决策
+强约束：
+- 不要再问“先做什么”
+- 优先问“如果不能重启怎么办”“如果代价过高怎么办”“如何权衡方案”
+""".strip(),
+
+        "verification": """
+请生成“反问验证型追问”。
+目标：
+- 检查候选人是否真正理解刚才的回答
+- 优先问改进点、局限、风险、边界情况
+""".strip()
+    }
+
+    mode_instruction = mode_instruction_map.get(
+        followup_mode,
+        mode_instruction_map["verification"]
+    )
+
+    return f"""
+你是一名技术面试官，请基于候选人的目标岗位、题目类型、当前题目、候选人的回答，以及题库提供的追问参考信息，生成一个更深入、更具体的追问问题。
+
+本次追问类型：{followup_mode}
+
+附加要求：
+{mode_instruction}
+
+题库参考信息：
+- 题目关键点：{payload.get("keyPoints", "")}
+- 评分重点：{payload.get("scoringFocus", "")}
+- 基础参考回答：{payload.get("referenceAnswerBasic", "")}
+- 优秀参考回答：{payload.get("referenceAnswerGood", "")}
+- 追问重点：{payload.get("followupFocus", "")}
+- 追问示例：{payload.get("followupExamples", "")}
+
+通用要求：
+1. 只输出一句追问问题
+2. 追问必须和当前回答强相关
+3. 优先参考“追问重点”和“追问示例”，但不要照抄
+4. 追问要体现技术面试风格
+5. 不要输出解释，不要输出编号，不要输出 JSON
+6. 不要总是重复“你能详细介绍如何在项目中应用吗”这类表达
+7. 问法要自然，像真实面试官
+8. 问题要尽量有区分度，不要和低质量回答时的追问过于相似
+
+目标岗位：{payload["roleName"]}
+题型：{payload["type"]}
+当前题目：{payload["question"]}
+候选人回答：{payload["answer"]}
 """.strip()
 
     return prompt

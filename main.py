@@ -125,13 +125,25 @@ def generate_followup(data: FollowUpRequest):
         "你可以结合具体项目经验，再进一步展开说明吗？"
     )
 
+    db = SessionLocal()
     try:
+        question_meta = get_question_by_role_and_content(db, data.role, data.question)
+        print("追问题库信息：", question_meta)
+
         llm_question = call_llm_for_followup({
             "role": data.role,
             "roleName": data.roleName,
             "question": data.question,
             "type": data.type,
-            "answer": data.answer
+            "answer": data.answer,
+            "difficulty": question_meta.get("difficulty") if question_meta else "",
+            "tags": question_meta.get("tags") if question_meta else "",
+            "keyPoints": question_meta.get("keyPoints") if question_meta else "",
+            "scoringFocus": question_meta.get("scoringFocus") if question_meta else "",
+            "referenceAnswerBasic": question_meta.get("referenceAnswerBasic") if question_meta else "",
+            "referenceAnswerGood": question_meta.get("referenceAnswerGood") if question_meta else "",
+            "followupFocus": question_meta.get("followupFocus") if question_meta else "",
+            "followupExamples": question_meta.get("followupExamples") if question_meta else ""
         })
 
         if llm_question:
@@ -139,6 +151,8 @@ def generate_followup(data: FollowUpRequest):
 
     except Exception as e:
         print("追问生成失败，已回退到默认追问：", e)
+    finally:
+        db.close()
 
     return {
         "followUpQuestion": follow_up_question
