@@ -12,6 +12,7 @@ def build_prompt(payload: dict) -> str:
     role_name = payload["roleName"]
     answers = payload["answers"]
     scores = payload["scores"]
+    profile_summary = payload.get("profileSummary", {})
 
     answer_text = []
     for idx, item in enumerate(answers, start=1):
@@ -32,8 +33,22 @@ def build_prompt(payload: dict) -> str:
 
     answer_block = "\n".join(answer_text)
 
+    profile_block = f"""
+历史成长摘要：
+- 面试总次数：{profile_summary.get("interviewCount", 0)}
+- 历史平均分：{profile_summary.get("avgScore", 0)}
+- 历史最高分：{profile_summary.get("bestScore", 0)}
+- 历史最低分：{profile_summary.get("worstScore", 0)}
+- 最近常练岗位：{", ".join(profile_summary.get("topRoles", []))}
+- 最近常见题型：{", ".join(profile_summary.get("topQuestionTypes", []))}
+- 高频知识点标签：{", ".join(profile_summary.get("topTags", []))}
+- 历史推荐方向：{"；".join(profile_summary.get("recommendedFocus", []))}
+- 历史 AI 总结：{profile_summary.get("aiSummary", "")}
+- 历史 AI 建议：{"；".join(profile_summary.get("aiSuggestions", []))}
+""".strip()
+
     prompt = f"""
-你是一名技术面试评估助手。请根据候选人的岗位、题目、回答内容、题目关键点、评分重点，以及系统提供的参考回答和规则评分，生成结构化评估结果。
+你是一名技术面试评估助手。请根据候选人的岗位、题目、回答内容、题目关键点、评分重点、历史成长摘要，以及系统提供的参考回答和规则评分，生成结构化评估结果。
 
 目标岗位：{role_name}
 
@@ -44,15 +59,19 @@ def build_prompt(payload: dict) -> str:
 - 岗位匹配度分：{scores["matchScore"]}
 - 综合得分：{scores["totalScore"]}
 
-作答信息：
+{profile_block}
+
+本次作答信息：
 {answer_block}
 
 请严格输出 JSON，且不要输出任何额外解释。格式如下：
 {{
-  "summary": "一句整体总结",
+  "summary": "一句本次整体总结",
+  "historicalInsight": "一句结合历史表现的阶段性判断",
   "strengths": ["亮点1", "亮点2", "亮点3"],
   "weaknesses": ["不足1", "不足2", "不足3"],
   "suggestions": ["建议1", "建议2", "建议3"],
+  "historicalSuggestions": ["结合历史的建议1", "结合历史的建议2"],
   "questionReports": [
     {{
       "question": "题目1",
@@ -63,8 +82,8 @@ def build_prompt(payload: dict) -> str:
 }}
 
 要求：
-1. strengths / weaknesses / suggestions / questionReports 都必须是结构化内容
-2. 每个数组建议 2 到 4 条
+1. strengths / weaknesses / suggestions / historicalSuggestions / questionReports 都必须是结构化内容
+2. historicalInsight 必须体现“和过去相比”的判断
 3. questionReports 的数量要与题目数量一致
 4. 反馈必须结合题目的关键点和评分重点
 5. 要明确指出候选人的回答答到了哪些关键点，缺少哪些关键点
@@ -118,9 +137,11 @@ def call_llm_for_feedback(payload: dict):
 
     return {
         "summary": result.get("summary", ""),
+        "historicalInsight": result.get("historicalInsight", ""),
         "strengths": result.get("strengths", []),
         "weaknesses": result.get("weaknesses", []),
         "suggestions": result.get("suggestions", []),
+        "historicalSuggestions": result.get("historicalSuggestions", []),
         "questionReports": result.get("questionReports", [])
     }
 

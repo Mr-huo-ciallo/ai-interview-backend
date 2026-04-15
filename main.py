@@ -51,6 +51,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class RegisterRequest(BaseModel):
     username: str
     password: str
@@ -59,6 +60,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
 
 class FollowUpRequest(BaseModel):
     role: str
@@ -77,10 +79,12 @@ class AnswerItem(BaseModel):
 
 
 class InterviewSubmitRequest(BaseModel):
+    userId: int | None = None
     role: str
     roleName: str
     answers: List[AnswerItem]
     submitTime: str
+
 
 class HistoryRecord(BaseModel):
     userId: int | None = None
@@ -174,6 +178,8 @@ def generate_followup(data: FollowUpRequest):
     return {
         "followUpQuestion": follow_up_question
     }
+
+
 @app.post("/api/report/generate")
 def generate_report(data: InterviewSubmitRequest):
     answer_texts = []
@@ -228,6 +234,8 @@ def generate_report(data: InterviewSubmitRequest):
         )
 
         summary = "整体能够完成本次模拟面试，但部分回答仍可进一步补充技术细节和表达层次。"
+        historical_insight = ""
+        historical_suggestions = []
 
         strengths = generate_strengths(
             data.role,
@@ -250,16 +258,35 @@ def generate_report(data: InterviewSubmitRequest):
         question_reports = []
         for item in enriched_answers:
             question_reports.append({
-        "question": item["question"],
-        "comment": "本题已完成作答，但仍可进一步结合关键点展开说明。",
-        "advice": "建议围绕题目的核心考察点补充更多技术细节和实际场景。"
-    })
+                "question": item["question"],
+                "comment": "本题已完成作答，但仍可进一步结合关键点展开说明。",
+                "advice": "建议围绕题目的核心考察点补充更多技术细节和实际场景。"
+            })
+
+        profile_summary = {}
+        if data.userId:
+            try:
+                profile_summary = get_user_history_summary(db, data.userId)
+                user = get_user_by_id(db, data.userId)
+                if user:
+                    try:
+                        profile_llm_result = call_llm_for_profile_summary({
+                            "username": user.username,
+                            **profile_summary
+                        })
+                        profile_summary["aiSummary"] = profile_llm_result.get("aiSummary", "")
+                        profile_summary["aiSuggestions"] = profile_llm_result.get("aiSuggestions", [])
+                    except Exception as e:
+                        print("历史摘要 AI 生成失败，继续使用规则摘要：", e)
+            except Exception as e:
+                print("读取历史摘要失败：", e)
 
         try:
             llm_result = call_llm_for_feedback({
                 "role": data.role,
                 "roleName": data.roleName,
                 "answers": enriched_answers,
+                "profileSummary": profile_summary,
                 "scores": {
                     "techScore": tech_score,
                     "expressionScore": expression_score,
@@ -272,6 +299,9 @@ def generate_report(data: InterviewSubmitRequest):
             if llm_result.get("summary"):
                 summary = llm_result["summary"]
 
+            if llm_result.get("historicalInsight"):
+                historical_insight = llm_result["historicalInsight"]
+
             if llm_result.get("strengths"):
                 strengths = llm_result["strengths"]
 
@@ -280,6 +310,9 @@ def generate_report(data: InterviewSubmitRequest):
 
             if llm_result.get("suggestions"):
                 suggestions = llm_result["suggestions"]
+
+            if llm_result.get("historicalSuggestions"):
+                historical_suggestions = llm_result["historicalSuggestions"]
 
             if llm_result.get("questionReports"):
                 question_reports = llm_result["questionReports"]
@@ -298,13 +331,16 @@ def generate_report(data: InterviewSubmitRequest):
             "logicScore": logic_score,
             "matchScore": match_score,
             "summary": summary,
+            "historicalInsight": historical_insight,
             "strengths": strengths,
             "weaknesses": weaknesses,
             "suggestions": suggestions,
+            "historicalSuggestions": historical_suggestions,
             "questionReports": question_reports
         }
     finally:
         db.close()
+
 
 @app.post("/api/history/add")
 def add_history(record: HistoryRecord):
@@ -328,6 +364,7 @@ def get_history(userId: int | None = None):
         }
     finally:
         db.close()
+
 
 @app.delete("/api/history/clear")
 def clear_history(userId: int | None = None):
@@ -364,7 +401,8 @@ def admin_add_question(data: QuestionCreateRequest):
         }
     finally:
         db.close()
-        
+
+
 @app.put("/api/admin/questions/{question_id}")
 def admin_update_question(question_id: int, data: QuestionCreateRequest):
     db = SessionLocal()
@@ -380,6 +418,7 @@ def admin_update_question(question_id: int, data: QuestionCreateRequest):
     finally:
         db.close()
 
+
 @app.delete("/api/admin/questions/{question_id}")
 def admin_delete_question(question_id: int):
     db = SessionLocal()
@@ -393,6 +432,8 @@ def admin_delete_question(question_id: int):
         }
     finally:
         db.close()
+
+
 @app.post("/api/auth/register")
 def register(data: RegisterRequest):
     db = SessionLocal()
@@ -416,6 +457,8 @@ def register(data: RegisterRequest):
         }
     finally:
         db.close()
+
+
 @app.post("/api/auth/login")
 def login(data: LoginRequest):
     db = SessionLocal()
@@ -433,6 +476,8 @@ def login(data: LoginRequest):
         }
     finally:
         db.close()
+
+
 @app.get("/api/auth/user/{user_id}")
 def get_current_user(user_id: int):
     db = SessionLocal()
@@ -449,6 +494,8 @@ def get_current_user(user_id: int):
         }
     finally:
         db.close()
+
+
 @app.get("/api/profile/summary")
 def get_profile_summary(userId: int):
     db = SessionLocal()
