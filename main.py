@@ -1,3 +1,12 @@
+import os
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -43,9 +52,16 @@ app = FastAPI()
 
 Base.metadata.create_all(bind=engine)
 
+raw_cors_origins = os.getenv("CORS_ORIGINS", "*")
+cors_origins = [
+    origin.strip()
+    for origin in raw_cors_origins.split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

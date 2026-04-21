@@ -1,0 +1,14 @@
+[Unit]
+Description=AceHire AI Interview FastAPI Backend
+After=network.target mysql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-interview/ai-interview-backend
+EnvironmentFile=/opt/ai-interview/ai-interview-backend/.env
+ExecStart=/opt/ai-interview/ai-interview-backend/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
