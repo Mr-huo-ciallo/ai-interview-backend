@@ -82,7 +82,6 @@ from scoring.rules import (
 from scoring.matrix import build_feature_matrix, blend_scores
 from scoring.config import SUPPORTED_ROLES
 from schemas import (
-    CareerUserRequest,
     FollowUpCreateRequest,
     FollowUpRequest,
     HistoryRecord,
@@ -697,7 +696,6 @@ def finish_job_follow_up(follow_up_id: int, current_user=Depends(require_current
 @app.post("/api/career/jobs/{job_id}/prepare")
 def prepare_for_career_job(
     job_id: int,
-    data: JobStatusRequest,
     current_user=Depends(require_current_user),
     db=Depends(get_db),
 ):
@@ -730,7 +728,6 @@ def prepare_for_career_job(
 @app.post("/api/career/jobs/{job_id}/resume-draft")
 def generate_tailored_resume_draft(
     job_id: int,
-    data: CareerUserRequest,
     current_user=Depends(require_current_user),
     db=Depends(get_db),
 ):
@@ -764,7 +761,6 @@ def generate_tailored_resume_draft(
 @app.post("/api/career/jobs/{job_id}/interview-questions")
 def generate_job_interview_questions(
     job_id: int,
-    data: CareerUserRequest,
     current_user=Depends(require_current_user),
     db=Depends(get_db),
 ):

@@ -83,10 +83,6 @@ class JobStatusRequest(BaseModel):
     applicationStatus: str
 
 
-class CareerUserRequest(BaseModel):
-    pass
-
-
 class ResumeVersionCreateRequest(BaseModel):
     jobId: int | None = None
     title: str

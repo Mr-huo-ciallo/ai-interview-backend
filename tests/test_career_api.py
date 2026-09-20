@@ -67,3 +67,25 @@ def test_follow_up_lifecycle_is_scoped_to_owner(client):
 
     dashboard = client.get("/api/career/dashboard", headers=owner_headers).json()
     assert dashboard["followUps"] == []
+
+
+def test_career_generation_endpoints_do_not_require_request_body(client):
+    headers = register_and_login(client, "career-generator")
+    resume = client.put(
+        "/api/career/resume",
+        json={"resumeText": "熟悉 Vue、Python 和 Docker。", "targetRole": "全栈工程师"},
+        headers=headers,
+    )
+    assert resume.status_code == 200
+
+    created = client.post(
+        "/api/career/jobs",
+        json={"title": "全栈工程师", "company": "示例公司", "requiredSkills": "Vue、Python、Docker"},
+        headers=headers,
+    )
+    assert created.status_code == 200
+    job_id = created.json()["job"]["id"]
+
+    assert client.post(f"/api/career/jobs/{job_id}/prepare", headers=headers).status_code == 200
+    assert client.post(f"/api/career/jobs/{job_id}/resume-draft", headers=headers).status_code == 200
+    assert client.post(f"/api/career/jobs/{job_id}/interview-questions", headers=headers).status_code == 200
