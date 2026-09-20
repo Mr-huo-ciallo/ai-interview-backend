@@ -84,6 +84,31 @@ ROLE_KEYWORDS = {
     },
 }
 
+SUPPORTED_ROLES = frozenset(ROLE_KEYWORDS)
+
+ROLE_TECH_FEEDBACK = {
+    "java": {
+        "strength": "后端相关知识点命中较多，体现出一定的岗位准备度。",
+        "weakness": "对后端高频知识点如 Spring、MySQL、Redis 的覆盖还不够充分。",
+    },
+    "frontend": {
+        "strength": "前端相关知识点覆盖较全面，岗位针对性较强。",
+        "weakness": "对前端高频知识点如 Vue/React、浏览器原理、性能优化的覆盖仍需加强。",
+    },
+    "qa": {
+        "strength": "测试与质量保障相关知识点命中较多，体现出较好的 QA 岗位准备度。",
+        "weakness": "对测试流程、缺陷定位、测试策略和自动化测试的覆盖仍需加强。",
+    },
+    "python": {
+        "strength": "Python 语言机制和工程实践相关知识点覆盖较好，岗位针对性较强。",
+        "weakness": "对 Python 语言机制、常用框架和工程化实践的覆盖仍需加强。",
+    },
+    "cs_basic": {
+        "strength": "计算机基础与软件工程概念覆盖较全面，基础能力表现较稳。",
+        "weakness": "对数据结构、算法、操作系统、网络和软件工程基础的覆盖仍需加强。",
+    },
+}
+
 STRUCTURE_WORDS = [
     "首先", "其次", "然后", "最后", "例如", "比如", "在项目中", "实际开发中",
 ]

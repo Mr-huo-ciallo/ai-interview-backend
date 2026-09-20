@@ -81,6 +81,7 @@ from scoring.rules import (
     calculate_type_bonus
 )
 from scoring.matrix import build_feature_matrix, blend_scores
+from scoring.config import SUPPORTED_ROLES
 
 app = FastAPI()
 
@@ -90,8 +91,6 @@ configure_logging()
 validate_runtime_config()
 if AUTO_CREATE_TABLES:
     Base.metadata.create_all(bind=engine)
-
-SUPPORTED_ROLES = {"java", "frontend", "qa", "python", "cs_basic"}
 
 raw_cors_origins = os.getenv("CORS_ORIGINS", "*")
 cors_origins = [
