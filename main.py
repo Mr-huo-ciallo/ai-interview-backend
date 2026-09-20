@@ -13,7 +13,6 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
 from auth_utils import (
     create_access_token,
     decode_access_token,
@@ -24,7 +23,6 @@ from auth_utils import (
 
 from llm_client import (
     call_llm_for_feedback,
-    call_llm_for_followup,
     call_llm_for_profile_summary,
     call_llm_for_job_preparation,
     call_llm_for_daily_action_plan,
@@ -35,7 +33,6 @@ from llm_payloads import build_job_context, build_question_context
 from db import Base, engine, get_db
 from config import AUTO_CREATE_TABLES, validate_runtime_config
 from observability import RequestLoggingMiddleware, configure_logging, get_request_id
-from models import HistoryRecordModel, InterviewQuestionModel
 from crud import (
     create_user,
     get_user_by_username,
@@ -43,12 +40,6 @@ from crud import (
     add_history_record,
     get_history_list,
     clear_history_records,
-    get_questions_by_role,
-    get_all_questions,
-    add_question,
-    delete_question,
-    get_question_by_id,
-    update_question,
     get_question_by_role_and_content,
     get_user_history_summary,
     get_resume_profile,
@@ -81,16 +72,14 @@ from scoring.rules import (
     calculate_type_bonus
 )
 from scoring.matrix import build_feature_matrix, blend_scores
-from scoring.config import SUPPORTED_ROLES
+from routers.questions import router as questions_router
 from schemas import (
     FollowUpCreateRequest,
-    FollowUpRequest,
     HistoryRecord,
     InterviewSubmitRequest,
     JobCreateRequest,
     JobStatusRequest,
     LoginRequest,
-    QuestionCreateRequest,
     RegisterRequest,
     ResumeProfileRequest,
     ResumeVersionCreateRequest,
@@ -122,6 +111,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestLoggingMiddleware)
+app.include_router(questions_router)
 
 
 @app.exception_handler(HTTPException)
@@ -175,56 +165,6 @@ def get_optional_current_user(
 @app.get("/")
 def read_root():
     return {"message": "AI Interview Backend is running"}
-
-
-@app.get("/api/questions")
-def get_questions(role: str = "java", db=Depends(get_db)):
-    questions = get_questions_by_role(db, role)
-
-    if not questions and role not in SUPPORTED_ROLES:
-        questions = get_questions_by_role(db, "java")
-
-    return {
-        "role": role,
-        "questions": questions
-    }
-
-
-@app.post("/api/interview/follow-up")
-def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
-    fallback_map = {
-        "project": "你在这个项目中具体负责哪些模块？遇到过什么技术难点？",
-        "technical": "你能进一步解释一下这个技术点背后的原理或适用场景吗？",
-        "scenario": "如果让你一步步落地解决，你会先从哪一步开始排查？"
-    }
-
-    follow_up_question = fallback_map.get(
-        data.type,
-        "你可以结合具体项目经验，再进一步展开说明吗？"
-    )
-
-    try:
-        question_meta = get_question_by_role_and_content(db, data.role, data.question)
-        logger.debug("追问题库信息已加载 role=%s found=%s", data.role, bool(question_meta))
-
-        llm_question = call_llm_for_followup({
-            "role": data.role,
-            "roleName": data.roleName,
-            "question": data.question,
-            "type": data.type,
-            "answer": data.answer,
-            **build_question_context(question_meta),
-        })
-
-        if llm_question:
-            follow_up_question = llm_question
-
-    except Exception:
-        logger.warning("追问生成失败，已回退到默认追问", exc_info=True)
-
-    return {
-        "followUpQuestion": follow_up_question
-    }
 
 
 @app.post("/api/report/generate")
@@ -445,46 +385,6 @@ def clear_history(current_user=Depends(require_current_user), db=Depends(get_db)
     clear_history_records(db, current_user.id)
     return {
         "message": "history cleared successfully"
-    }
-
-
-@app.get("/api/admin/questions")
-def admin_get_questions(role: Optional[str] = None, db=Depends(get_db)):
-    questions = get_all_questions(db, role)
-    return {
-        "questions": questions
-    }
-
-
-@app.post("/api/admin/questions")
-def admin_add_question(data: QuestionCreateRequest, db=Depends(get_db)):
-    question = add_question(db, data.model_dump())
-    return {
-        "message": "question added successfully",
-        "question": question
-    }
-
-
-@app.put("/api/admin/questions/{question_id}")
-def admin_update_question(question_id: int, data: QuestionCreateRequest, db=Depends(get_db)):
-    question = update_question(db, question_id, data.model_dump())
-    if not question:
-        raise HTTPException(status_code=404, detail="Question not found")
-
-    return {
-        "message": "question updated successfully",
-        "question": question
-    }
-
-
-@app.delete("/api/admin/questions/{question_id}")
-def admin_delete_question(question_id: int, db=Depends(get_db)):
-    success = delete_question(db, question_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Question not found")
-
-    return {
-        "message": "question deleted successfully"
     }
 
 
