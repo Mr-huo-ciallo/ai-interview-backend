@@ -192,6 +192,12 @@ def generate_strengths(
         result.append("后端相关知识点命中较多，体现出一定的岗位准备度。")
     if role == "frontend" and tech_score >= 80:
         result.append("前端相关知识点覆盖较全面，岗位针对性较强。")
+    if role == "qa" and tech_score >= 80:
+        result.append("测试与质量保障相关知识点命中较多，体现出较好的 QA 岗位准备度。")
+    if role == "python" and tech_score >= 80:
+        result.append("Python 语言机制和工程实践相关知识点覆盖较好，岗位针对性较强。")
+    if role == "cs_basic" and tech_score >= 80:
+        result.append("计算机基础与软件工程概念覆盖较全面，基础能力表现较稳。")
 
     if not result:
         result.append("能够完成基础作答，具备进一步提升空间。")
@@ -221,6 +227,12 @@ def generate_weaknesses(
         result.append("对后端高频知识点如 Spring、MySQL、Redis 的覆盖还不够充分。")
     if role == "frontend" and tech_score < 75:
         result.append("对前端高频知识点如 Vue/React、浏览器原理、性能优化的覆盖仍需加强。")
+    if role == "qa" and tech_score < 75:
+        result.append("对测试流程、缺陷定位、测试策略和自动化测试的覆盖仍需加强。")
+    if role == "python" and tech_score < 75:
+        result.append("对 Python 语言机制、常用框架和工程化实践的覆盖仍需加强。")
+    if role == "cs_basic" and tech_score < 75:
+        result.append("对数据结构、算法、操作系统、网络和软件工程基础的覆盖仍需加强。")
 
     if not result:
         result.append("整体表现较均衡，但仍可进一步打磨细节。")

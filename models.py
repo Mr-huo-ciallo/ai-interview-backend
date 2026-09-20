@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime
 from datetime import datetime
 from db import Base
 
@@ -23,6 +23,8 @@ class HistoryRecordModel(Base):
     answer_count = Column(Integer, nullable=False)
     submit_time = Column(String(100), nullable=False)
     answers_json = Column(Text, nullable=False)
+    feature_matrix_json = Column(Text, nullable=True)
+    score_meta_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
 
 
@@ -43,3 +45,56 @@ class InterviewQuestionModel(Base):
     reference_answer_good = Column(Text, nullable=True)
     followup_focus = Column(Text, nullable=True)
     followup_examples = Column(Text, nullable=True)
+
+
+class ResumeProfileModel(Base):
+    __tablename__ = "resume_profiles"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, unique=True, index=True)
+    resume_text = Column(Text, nullable=False)
+    skills_json = Column(Text, nullable=False, default="[]")
+    target_role = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class JobPostModel(Base):
+    __tablename__ = "job_posts"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    title = Column(String(150), nullable=False)
+    company = Column(String(150), nullable=False)
+    location = Column(String(100), nullable=True)
+    salary = Column(String(100), nullable=True)
+    required_skills = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    source_url = Column(String(500), nullable=True)
+    application_status = Column(String(30), nullable=False, default="saved")
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class ResumeVersionModel(Base):
+    __tablename__ = "resume_versions"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    job_id = Column(Integer, nullable=True, index=True)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    source = Column(String(30), nullable=False, default="manual")
+    created_at = Column(DateTime, default=datetime.now)
+
+
+class JobFollowUpModel(Base):
+    __tablename__ = "job_follow_ups"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    job_id = Column(Integer, nullable=False, index=True)
+    due_at = Column(String(40), nullable=False, index=True)
+    note = Column(Text, nullable=False)
+    completed = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.now)

@@ -67,7 +67,7 @@ log "Checking project directories"
 
 log "Installing system dependencies"
 sudo apt update
-sudo apt install -y nginx mysql-server python3 python3-venv python3-pip nodejs npm git curl
+sudo apt install -y nginx mysql-server python3 python3-venv python3-pip nodejs git curl
 
 need_command nginx
 need_command mysql

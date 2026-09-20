@@ -7,18 +7,34 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI, HTTPException
+import logging
+
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
-from auth_utils import hash_password, verify_password
+from typing import Any, List, Optional
+from auth_utils import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    is_legacy_password_hash,
+    verify_password,
+)
 
 from llm_client import (
     call_llm_for_feedback,
     call_llm_for_followup,
-    call_llm_for_profile_summary
+    call_llm_for_profile_summary,
+    call_llm_for_job_preparation,
+    call_llm_for_daily_action_plan,
+    call_llm_for_tailored_resume,
+    call_llm_for_job_interview_questions
 )
 from db import SessionLocal, engine, Base
+from config import AUTO_CREATE_TABLES, validate_runtime_config
+from observability import RequestLoggingMiddleware, configure_logging, get_request_id
 from models import HistoryRecordModel, InterviewQuestionModel
 from crud import (
     create_user,
@@ -34,7 +50,24 @@ from crud import (
     get_question_by_id,
     update_question,
     get_question_by_role_and_content,
-    get_user_history_summary
+    get_user_history_summary,
+    get_resume_profile,
+    save_resume_profile,
+    create_job,
+    get_jobs_by_user,
+    get_job_by_id,
+    update_job_status,
+    update_job,
+    delete_job,
+    score_job_match,
+    build_job_preparation,
+    build_daily_action_plan,
+    build_job_interview_questions,
+    create_resume_version,
+    get_resume_versions,
+    create_follow_up,
+    get_pending_follow_ups,
+    complete_follow_up,
 )
 from scoring.rules import (
     calculate_tech_score,
@@ -47,10 +80,18 @@ from scoring.rules import (
     generate_suggestions,
     calculate_type_bonus
 )
+from scoring.matrix import build_feature_matrix, blend_scores
 
 app = FastAPI()
 
-Base.metadata.create_all(bind=engine)
+security = HTTPBearer(auto_error=False)
+
+configure_logging()
+validate_runtime_config()
+if AUTO_CREATE_TABLES:
+    Base.metadata.create_all(bind=engine)
+
+SUPPORTED_ROLES = {"java", "frontend", "qa", "python", "cs_basic"}
 
 raw_cors_origins = os.getenv("CORS_ORIGINS", "*")
 cors_origins = [
@@ -66,6 +107,57 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestLoggingMiddleware)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    response = {"detail": exc.detail, "requestId": get_request_id(request)}
+    return JSONResponse(status_code=exc.status_code, content=response, headers=exc.headers)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logging.getLogger("api.error").exception(
+        "unhandled request error requestId=%s path=%s", get_request_id(request), request.url.path
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "服务器内部错误", "requestId": get_request_id(request)},
+    )
+
+
+def require_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security)
+):
+    if not credentials or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
+    return resolve_token_user(credentials)
+
+
+def resolve_token_user(credentials: HTTPAuthorizationCredentials):
+    try:
+        payload = decode_access_token(credentials.credentials)
+        db = SessionLocal()
+        try:
+            user = get_user_by_id(db, int(payload["sub"]))
+        finally:
+            db.close()
+        if not user:
+            raise ValueError("用户不存在")
+        return user
+    except (ValueError, KeyError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效，请重新登录")
+
+
+def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security)
+):
+    if not credentials:
+        return None
+    if credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录凭证格式无效")
+    return resolve_token_user(credentials)
 
 
 class RegisterRequest(BaseModel):
@@ -110,6 +202,8 @@ class HistoryRecord(BaseModel):
     answerCount: int
     submitTime: str
     answers: List[AnswerItem]
+    featureMatrix: Optional[List[dict[str, Any]]] = None
+    scoreMeta: Optional[dict[str, Any]] = None
 
 
 class QuestionCreateRequest(BaseModel):
@@ -127,6 +221,41 @@ class QuestionCreateRequest(BaseModel):
     followupExamples: str = ""
 
 
+class ResumeProfileRequest(BaseModel):
+    resumeText: str
+    targetRole: str = ""
+
+
+class JobCreateRequest(BaseModel):
+    title: str
+    company: str
+    location: str = ""
+    salary: str = ""
+    requiredSkills: str = ""
+    description: str = ""
+    sourceUrl: str = ""
+
+
+class JobStatusRequest(BaseModel):
+    applicationStatus: str
+
+
+class CareerUserRequest(BaseModel):
+    pass
+
+
+class ResumeVersionCreateRequest(BaseModel):
+    jobId: int | None = None
+    title: str
+    content: str
+    source: str = "manual"
+
+
+class FollowUpCreateRequest(BaseModel):
+    dueAt: str
+    note: str
+
+
 @app.get("/")
 def read_root():
     return {"message": "AI Interview Backend is running"}
@@ -138,7 +267,7 @@ def get_questions(role: str = "java"):
     try:
         questions = get_questions_by_role(db, role)
 
-        if not questions and role != "java":
+        if not questions and role not in SUPPORTED_ROLES:
             questions = get_questions_by_role(db, "java")
 
         return {
@@ -197,7 +326,7 @@ def generate_followup(data: FollowUpRequest):
 
 
 @app.post("/api/report/generate")
-def generate_report(data: InterviewSubmitRequest):
+def generate_report(data: InterviewSubmitRequest, current_user=Depends(get_optional_current_user)):
     answer_texts = []
     for item in data.answers:
         merged_text = item.answer
@@ -229,25 +358,42 @@ def generate_report(data: InterviewSubmitRequest):
                 "followupExamples": question_meta.get("followupExamples") if question_meta else ""
             })
 
-        tech_score = calculate_tech_score(data.role, answer_texts)
-        expression_score = calculate_expression_score(answer_texts)
-        logic_score = calculate_logic_score(answer_texts)
-        match_score = calculate_match_score(data.role, answer_texts)
+        legacy_tech_score = calculate_tech_score(data.role, answer_texts)
+        legacy_expression_score = calculate_expression_score(answer_texts)
+        legacy_logic_score = calculate_logic_score(answer_texts)
+        legacy_match_score = calculate_match_score(data.role, answer_texts)
 
         bonus_result = calculate_type_bonus(data.role, [item.model_dump() for item in data.answers])
 
-        tech_score = min(tech_score + bonus_result["tech_bonus"], 95)
-        expression_score = min(expression_score + bonus_result["expression_bonus"], 95)
-        logic_score = min(logic_score + bonus_result["logic_bonus"], 95)
-        match_score = min(match_score + bonus_result["match_bonus"], 95)
+        legacy_tech_score = min(legacy_tech_score + bonus_result["tech_bonus"], 95)
+        legacy_expression_score = min(legacy_expression_score + bonus_result["expression_bonus"], 95)
+        legacy_logic_score = min(legacy_logic_score + bonus_result["logic_bonus"], 95)
+        legacy_match_score = min(legacy_match_score + bonus_result["match_bonus"], 95)
 
-        total_score = calculate_total_score(
+        legacy_total_score = calculate_total_score(
             data.role,
-            tech_score,
-            expression_score,
-            logic_score,
-            match_score
+            legacy_tech_score,
+            legacy_expression_score,
+            legacy_logic_score,
+            legacy_match_score
         )
+        legacy_scores = {
+            "techScore": legacy_tech_score,
+            "expressionScore": legacy_expression_score,
+            "logicScore": legacy_logic_score,
+            "matchScore": legacy_match_score,
+            "totalScore": legacy_total_score
+        }
+
+        matrix_result = build_feature_matrix(data.role, enriched_answers)
+        final_scores = blend_scores(matrix_result["scores"], legacy_scores, matrix_weight=0.7)
+        feature_matrix = matrix_result["questionRows"]
+
+        tech_score = final_scores["techScore"]
+        expression_score = final_scores["expressionScore"]
+        logic_score = final_scores["logicScore"]
+        match_score = final_scores["matchScore"]
+        total_score = final_scores["totalScore"]
 
         summary = "整体能够完成本次模拟面试，但部分回答仍可进一步补充技术细节和表达层次。"
         historical_insight = ""
@@ -272,18 +418,23 @@ def generate_report(data: InterviewSubmitRequest):
         suggestions = generate_suggestions(data.role)
 
         question_reports = []
-        for item in enriched_answers:
+        for index, item in enumerate(enriched_answers):
+            matrix_row = feature_matrix[index] if index < len(feature_matrix) else {}
+            features = matrix_row.get("features", {})
             question_reports.append({
                 "question": item["question"],
-                "comment": "本题已完成作答，但仍可进一步结合关键点展开说明。",
-                "advice": "建议围绕题目的核心考察点补充更多技术细节和实际场景。"
+                "comment": "本题已完成作答，系统已结合关键点覆盖、评分重点命中、参考答案相似度和回答结构进行评估。",
+                "coveredKeyPoints": features.get("coveredKeyPoints", []),
+                "missingKeyPoints": features.get("missingKeyPoints", []),
+                "advice": "建议优先补充缺失关键点，并结合原理、边界条件、实际场景或验证方式展开。"
             })
 
         profile_summary = {}
-        if data.userId:
+        user_id = current_user.id if current_user else None
+        if user_id:
             try:
-                profile_summary = get_user_history_summary(db, data.userId)
-                user = get_user_by_id(db, data.userId)
+                profile_summary = get_user_history_summary(db, user_id)
+                user = get_user_by_id(db, user_id)
                 if user:
                     try:
                         profile_llm_result = call_llm_for_profile_summary({
@@ -308,8 +459,14 @@ def generate_report(data: InterviewSubmitRequest):
                     "expressionScore": expression_score,
                     "logicScore": logic_score,
                     "matchScore": match_score,
-                    "totalScore": total_score
-                }
+                    "totalScore": total_score,
+                    "confidence": final_scores.get("confidence", 0),
+                    "scoreSource": final_scores.get("scoreSource", ""),
+                    "matrixWeight": final_scores.get("matrixWeight", 0)
+                },
+                "legacyScores": legacy_scores,
+                "matrixScores": matrix_result["scores"],
+                "featureMatrix": feature_matrix
             })
 
             if llm_result.get("summary"):
@@ -352,17 +509,27 @@ def generate_report(data: InterviewSubmitRequest):
             "weaknesses": weaknesses,
             "suggestions": suggestions,
             "historicalSuggestions": historical_suggestions,
-            "questionReports": question_reports
+            "questionReports": question_reports,
+            "featureMatrix": feature_matrix,
+            "scoreMeta": {
+                "scoreSource": final_scores.get("scoreSource", ""),
+                "matrixWeight": final_scores.get("matrixWeight", 0),
+                "confidence": final_scores.get("confidence", 0),
+                "legacyScores": legacy_scores,
+                "matrixScores": matrix_result["scores"]
+            }
         }
     finally:
         db.close()
 
 
 @app.post("/api/history/add")
-def add_history(record: HistoryRecord):
+def add_history(record: HistoryRecord, current_user=Depends(require_current_user)):
     db = SessionLocal()
     try:
-        add_history_record(db, record.model_dump())
+        record_data = record.model_dump()
+        record_data["userId"] = current_user.id
+        add_history_record(db, record_data)
         return {
             "message": "history saved successfully"
         }
@@ -371,10 +538,10 @@ def add_history(record: HistoryRecord):
 
 
 @app.get("/api/history/list")
-def get_history(userId: int | None = None):
+def get_history(current_user=Depends(require_current_user)):
     db = SessionLocal()
     try:
-        history = get_history_list(db, userId)
+        history = get_history_list(db, current_user.id)
         return {
             "history": history
         }
@@ -383,10 +550,10 @@ def get_history(userId: int | None = None):
 
 
 @app.delete("/api/history/clear")
-def clear_history(userId: int | None = None):
+def clear_history(current_user=Depends(require_current_user)):
     db = SessionLocal()
     try:
-        clear_history_records(db, userId)
+        clear_history_records(db, current_user.id)
         return {
             "message": "history cleared successfully"
         }
@@ -483,8 +650,13 @@ def login(data: LoginRequest):
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
 
+        if is_legacy_password_hash(user.password_hash):
+            user.password_hash = hash_password(data.password)
+            db.commit()
+
         return {
             "message": "login success",
+            "accessToken": create_access_token(user.id, user.username),
             "user": {
                 "id": user.id,
                 "username": user.username
@@ -495,32 +667,19 @@ def login(data: LoginRequest):
 
 
 @app.get("/api/auth/user/{user_id}")
-def get_current_user(user_id: int):
-    db = SessionLocal()
-    try:
-        user = get_user_by_id(db, user_id)
-        if not user:
-            raise HTTPException(status_code=404, detail="用户不存在")
-
-        return {
-            "user": {
-                "id": user.id,
-                "username": user.username
-            }
-        }
-    finally:
-        db.close()
+def get_current_user(user_id: int, current_user=Depends(require_current_user)):
+    if user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问其他用户信息")
+    return {"user": {"id": current_user.id, "username": current_user.username}}
 
 
 @app.get("/api/profile/summary")
-def get_profile_summary(userId: int):
+def get_profile_summary(current_user=Depends(require_current_user)):
     db = SessionLocal()
     try:
-        user = get_user_by_id(db, userId)
-        if not user:
-            raise HTTPException(status_code=404, detail="用户不存在")
+        user = current_user
 
-        summary = get_user_history_summary(db, userId)
+        summary = get_user_history_summary(db, user.id)
 
         ai_summary = ""
         ai_suggestions = []
@@ -542,5 +701,273 @@ def get_profile_summary(userId: int):
             "aiSummary": ai_summary,
             "aiSuggestions": ai_suggestions
         }
+    finally:
+        db.close()
+
+
+@app.get("/api/career/dashboard")
+def get_career_dashboard(current_user=Depends(require_current_user)):
+    user_id = current_user.id
+    db = SessionLocal()
+    try:
+        resume = get_resume_profile(db, user_id)
+        jobs = get_jobs_by_user(db, user_id)
+        enriched_jobs = [{**job, "match": score_job_match(resume, job)} for job in jobs]
+        status_counts = {status: 0 for status in ("saved", "applied", "interviewing", "offer", "rejected")}
+        for job in enriched_jobs:
+            status = job["applicationStatus"]
+            status_counts[status] = status_counts.get(status, 0) + 1
+        average_match = round(sum(job["match"]["score"] for job in enriched_jobs) / len(enriched_jobs)) if enriched_jobs else 0
+        progressed_count = status_counts["applied"] + status_counts["interviewing"] + status_counts["offer"] + status_counts["rejected"]
+        interview_count = status_counts["interviewing"] + status_counts["offer"]
+        funnel = {
+            "stages": [
+                {"key": "saved", "label": "已收藏", "count": status_counts["saved"]},
+                {"key": "applied", "label": "已投递", "count": status_counts["applied"]},
+                {"key": "interviewing", "label": "进入面试", "count": status_counts["interviewing"]},
+                {"key": "offer", "label": "已获 Offer", "count": status_counts["offer"]}
+            ],
+            "progressedCount": progressed_count,
+            "interviewRate": round(interview_count / progressed_count * 100) if progressed_count else 0,
+            "offerRate": round(status_counts["offer"] / progressed_count * 100) if progressed_count else 0
+        }
+        return {
+            "resume": resume,
+            "jobs": enriched_jobs,
+            "resumeVersions": get_resume_versions(db, user_id),
+            "followUps": get_pending_follow_ups(db, user_id),
+            "summary": {
+                "jobCount": len(enriched_jobs),
+                "averageMatch": average_match,
+                "statusCounts": status_counts,
+                "funnel": funnel
+            }
+        }
+    finally:
+        db.close()
+
+
+@app.put("/api/career/resume")
+def upsert_resume(data: ResumeProfileRequest, current_user=Depends(require_current_user)):
+    if not data.resumeText.strip():
+        raise HTTPException(status_code=400, detail="简历内容不能为空")
+    db = SessionLocal()
+    try:
+        return {"resume": save_resume_profile(db, current_user.id, data.resumeText.strip(), data.targetRole.strip())}
+    finally:
+        db.close()
+
+
+@app.post("/api/career/jobs")
+def add_career_job(data: JobCreateRequest, current_user=Depends(require_current_user)):
+    if not data.title.strip() or not data.company.strip():
+        raise HTTPException(status_code=400, detail="职位名称和公司名称不能为空")
+    db = SessionLocal()
+    try:
+        job = create_job(db, current_user.id, data.model_dump())
+        resume = get_resume_profile(db, current_user.id)
+        return {"job": {**job, "match": score_job_match(resume, job)}}
+    finally:
+        db.close()
+
+
+@app.patch("/api/career/jobs/{job_id}/status")
+def change_career_job_status(job_id: int, data: JobStatusRequest, current_user=Depends(require_current_user)):
+    allowed_statuses = {"saved", "applied", "interviewing", "offer", "rejected"}
+    if data.applicationStatus not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="不支持的职位状态")
+    db = SessionLocal()
+    try:
+        job = update_job_status(db, current_user.id, job_id, data.applicationStatus)
+        if not job:
+            raise HTTPException(status_code=404, detail="职位不存在")
+        resume = get_resume_profile(db, current_user.id)
+        return {"job": {**job, "match": score_job_match(resume, job)}}
+    finally:
+        db.close()
+
+
+@app.put("/api/career/jobs/{job_id}")
+def update_career_job(job_id: int, data: JobCreateRequest, current_user=Depends(require_current_user)):
+    if not data.title.strip() or not data.company.strip():
+        raise HTTPException(status_code=400, detail="职位名称和公司名称不能为空")
+    db = SessionLocal()
+    try:
+        job = update_job(db, current_user.id, job_id, data.model_dump())
+        if not job:
+            raise HTTPException(status_code=404, detail="职位不存在")
+        resume = get_resume_profile(db, current_user.id)
+        return {"job": {**job, "match": score_job_match(resume, job)}}
+    finally:
+        db.close()
+
+
+@app.delete("/api/career/jobs/{job_id}")
+def delete_career_job(job_id: int, current_user=Depends(require_current_user)):
+    db = SessionLocal()
+    try:
+        if not delete_job(db, current_user.id, job_id):
+            raise HTTPException(status_code=404, detail="职位不存在")
+        return {"message": "职位已删除"}
+    finally:
+        db.close()
+
+
+@app.post("/api/career/jobs/{job_id}/follow-ups")
+def add_job_follow_up(job_id: int, data: FollowUpCreateRequest, current_user=Depends(require_current_user)):
+    if not data.dueAt.strip() or not data.note.strip():
+        raise HTTPException(status_code=400, detail="请填写跟进时间和跟进事项")
+    db = SessionLocal()
+    try:
+        if not get_job_by_id(db, current_user.id, job_id):
+            raise HTTPException(status_code=404, detail="职位不存在")
+        return {"followUp": create_follow_up(db, current_user.id, job_id, data.dueAt.strip(), data.note.strip())}
+    finally:
+        db.close()
+
+
+@app.patch("/api/career/follow-ups/{follow_up_id}/complete")
+def finish_job_follow_up(follow_up_id: int, current_user=Depends(require_current_user)):
+    db = SessionLocal()
+    try:
+        follow_up = complete_follow_up(db, current_user.id, follow_up_id)
+        if not follow_up:
+            raise HTTPException(status_code=404, detail="跟进事项不存在")
+        return {"followUp": follow_up}
+    finally:
+        db.close()
+
+
+@app.post("/api/career/jobs/{job_id}/prepare")
+def prepare_for_career_job(job_id: int, data: JobStatusRequest, current_user=Depends(require_current_user)):
+    db = SessionLocal()
+    try:
+        resume = get_resume_profile(db, current_user.id)
+        if not resume:
+            raise HTTPException(status_code=400, detail="请先保存简历，再生成职位准备建议")
+        job = get_job_by_id(db, current_user.id, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="职位不存在")
+
+        match = score_job_match(resume, job)
+        preparation = build_job_preparation(resume, job, match)
+        try:
+            llm_result = call_llm_for_job_preparation({
+                "resumeText": resume["resumeText"],
+                "jobTitle": job["title"],
+                "company": job["company"],
+                "jobRequirements": job["requiredSkills"],
+                "jobDescription": job["description"],
+                "match": match
+            })
+            if llm_result.get("summary"):
+                preparation = llm_result
+        except Exception as error:
+            print("职位准备建议 AI 生成失败，已回退到规则建议：", error)
+
+        return {"jobId": job_id, "preparation": preparation}
+    finally:
+        db.close()
+
+
+@app.post("/api/career/jobs/{job_id}/resume-draft")
+def generate_tailored_resume_draft(job_id: int, data: CareerUserRequest, current_user=Depends(require_current_user)):
+    db = SessionLocal()
+    try:
+        resume = get_resume_profile(db, current_user.id)
+        if not resume:
+            raise HTTPException(status_code=400, detail="请先保存原始简历，再生成定制草稿")
+        job = get_job_by_id(db, current_user.id, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="职位不存在")
+        match = score_job_match(resume, job)
+        draft = {
+            "source": "rule",
+            "title": f"{job['company']} · {job['title']} · 简历草稿",
+            "content": resume["resumeText"]
+        }
+        try:
+            llm_result = call_llm_for_tailored_resume({
+                "resumeText": resume["resumeText"],
+                "jobTitle": job["title"],
+                "company": job["company"],
+                "jobRequirements": job["requiredSkills"],
+                "jobDescription": job["description"],
+                "match": match
+            })
+            draft = llm_result
+        except Exception as error:
+            print("定制简历草稿 AI 生成失败，已回退到原始简历：", error)
+        return {"jobId": job_id, "draft": draft}
+    finally:
+        db.close()
+
+
+@app.post("/api/career/jobs/{job_id}/interview-questions")
+def generate_job_interview_questions(job_id: int, data: CareerUserRequest, current_user=Depends(require_current_user)):
+    db = SessionLocal()
+    try:
+        resume = get_resume_profile(db, current_user.id)
+        if not resume:
+            raise HTTPException(status_code=400, detail="请先保存简历，再生成 JD 专项面试题")
+        job = get_job_by_id(db, current_user.id, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="职位不存在")
+        match = score_job_match(resume, job)
+        questions = build_job_interview_questions(job, match)
+        source = "rule"
+        try:
+            llm_questions = call_llm_for_job_interview_questions({
+                "resumeText": resume["resumeText"],
+                "jobTitle": job["title"],
+                "company": job["company"],
+                "jobRequirements": job["requiredSkills"],
+                "jobDescription": job["description"],
+                "match": match
+            })
+            if llm_questions:
+                questions = llm_questions
+                source = "llm"
+        except Exception as error:
+            print("JD 专项面试题 AI 生成失败，已回退到规则题目：", error)
+        return {"jobId": job_id, "source": source, "questions": questions}
+    finally:
+        db.close()
+
+
+@app.post("/api/career/resume-versions")
+def save_resume_version(data: ResumeVersionCreateRequest, current_user=Depends(require_current_user)):
+    if not data.title.strip() or not data.content.strip():
+        raise HTTPException(status_code=400, detail="版本名称和简历内容不能为空")
+    db = SessionLocal()
+    try:
+        if data.jobId and not get_job_by_id(db, current_user.id, data.jobId):
+            raise HTTPException(status_code=404, detail="关联职位不存在")
+        version = create_resume_version(db, current_user.id, data.model_dump())
+        return {"version": version}
+    finally:
+        db.close()
+
+
+@app.get("/api/career/action-plan")
+def get_career_action_plan(current_user=Depends(require_current_user)):
+    user_id = current_user.id
+    db = SessionLocal()
+    try:
+        resume = get_resume_profile(db, user_id)
+        jobs = get_jobs_by_user(db, user_id)
+        enriched_jobs = [{**job, "match": score_job_match(resume, job)} for job in jobs]
+        plan = build_daily_action_plan(resume, enriched_jobs)
+        try:
+            llm_result = call_llm_for_daily_action_plan({
+                "resume": resume,
+                "jobs": enriched_jobs,
+                "rulePlan": plan
+            })
+            if llm_result.get("summary"):
+                plan = llm_result
+        except Exception as error:
+            print("每日行动计划 AI 生成失败，已回退到规则计划：", error)
+        return {"plan": plan}
     finally:
         db.close()

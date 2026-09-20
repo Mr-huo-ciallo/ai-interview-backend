@@ -50,7 +50,31 @@ python3 -m venv .venv
 ```env
 DATABASE_URL=mysql+pymysql://ai_interview_user:your_password@127.0.0.1:3306/ai_interview
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://your-domain.com
+AUTH_SECRET=replace_with_a_long_random_value_and_keep_it_stable
+AUTH_TOKEN_TTL_SECONDS=604800
 LLM_API_KEY=your_key
 LLM_BASE_URL=https://your-llm-base-url/v1
 LLM_MODEL=your_model
+```
+
+## 数据库迁移
+
+项目已使用 Alembic 管理数据库版本。新环境建库或部署时执行：
+
+```powershell
+cd ai-interview-backend
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
+```
+
+已有数据库如果此前由 `Base.metadata.create_all` 创建，先完成备份和表结构核对，再将其标记为当前初始版本，避免重复建表：
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini stamp head
+```
+
+生产环境必须设置 `AUTO_CREATE_TABLES=false`，并在启动应用前执行 `upgrade head`。后续修改模型时，应先创建新的迁移版本，再部署代码：
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini revision --autogenerate -m "describe_change"
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
 ```

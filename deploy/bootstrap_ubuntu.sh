@@ -7,7 +7,7 @@ BACKEND_DIR="$PROJECT_ROOT/ai-interview-backend"
 
 echo "Installing system dependencies..."
 sudo apt update
-sudo apt install -y nginx mysql-server python3 python3-venv python3-pip nodejs npm git
+sudo apt install -y nginx mysql-server python3 python3-venv python3-pip nodejs git
 
 echo "Preparing backend virtual environment..."
 cd "$BACKEND_DIR"

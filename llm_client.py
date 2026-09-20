@@ -16,90 +16,79 @@ LLM_MODEL = os.getenv("LLM_MODEL", "")
 
 
 def build_prompt(payload: dict) -> str:
-    role_name = payload["roleName"]
-    answers = payload["answers"]
-    scores = payload["scores"]
+    role_name = payload.get("roleName") or payload.get("role") or "目标岗位"
+    answers = payload.get("answers", [])
+    scores = payload.get("scores", {})
+    legacy_scores = payload.get("legacyScores", {})
+    matrix_scores = payload.get("matrixScores", {})
+    feature_matrix = payload.get("featureMatrix", [])
     profile_summary = payload.get("profileSummary", {})
 
     answer_text = []
-    for idx, item in enumerate(answers, start=1):
+    for index, item in enumerate(answers, start=1):
         answer_text.append(
-            f"第{idx}题\n"
-            f"题型：{item.get('type', '')}\n"
-            f"难度：{item.get('difficulty', '')}\n"
-            f"标签：{item.get('tags', '')}\n"
-            f"问题：{item.get('question', '')}\n"
-            f"关键点：{item.get('keyPoints', '')}\n"
-            f"评分重点：{item.get('scoringFocus', '')}\n"
-            f"基础参考回答：{item.get('referenceAnswerBasic', '')}\n"
-            f"优秀参考回答：{item.get('referenceAnswerGood', '')}\n"
-            f"候选人主回答：{item.get('answer', '')}\n"
-            f"AI追问：{item.get('followUpQuestion', '')}\n"
-            f"候选人追问回答：{item.get('followUpAnswer', '')}\n"
+            f"""
+题目 {index}：
+- 题目：{item.get("question", "")}
+- 题型：{item.get("type", "")}
+- 难度：{item.get("difficulty", "")}
+- 候选人回答：{item.get("answer", "")}
+- 追问回答：{item.get("followUpAnswer", "")}
+- 题库关键点：{item.get("keyPoints", "")}
+- 评分重点：{item.get("scoringFocus", "")}
+- 基础参考答案：{item.get("referenceAnswerBasic", "")}
+- 优秀参考答案：{item.get("referenceAnswerGood", "")}
+""".strip()
         )
 
-    answer_block = "\n".join(answer_text)
+    return f"""
+你是一名技术面试评估助手。请基于候选人回答、题库关键点和规则版特征矩阵，生成结构化中文反馈。
 
-    profile_block = f"""
-历史成长摘要：
-- 面试总次数：{profile_summary.get("interviewCount", 0)}
-- 历史平均分：{profile_summary.get("avgScore", 0)}
-- 历史最高分：{profile_summary.get("bestScore", 0)}
-- 历史最低分：{profile_summary.get("worstScore", 0)}
-- 最近常练岗位：{", ".join(profile_summary.get("topRoles", []))}
-- 最近常见题型：{", ".join(profile_summary.get("topQuestionTypes", []))}
-- 高频知识点标签：{", ".join(profile_summary.get("topTags", []))}
-- 历史推荐方向：{"；".join(profile_summary.get("recommendedFocus", []))}
-- 历史 AI 总结：{profile_summary.get("aiSummary", "")}
-- 历史 AI 建议：{"；".join(profile_summary.get("aiSuggestions", []))}
-""".strip()
-
-    prompt = f"""
-你是一名技术面试评估助手。请根据候选人的岗位、题目、回答内容、题目关键点、评分重点、历史成长摘要，以及系统提供的参考回答和规则评分，生成结构化评估结果。
+重要约束：
+1. 分数已经由后端规则和特征矩阵计算完成，你只能解释分数依据，不允许重新打分或修改分数。
+2. 必须优先参考 featureMatrix 中的覆盖情况、缺失关键点、题型分项分和 confidence。
+3. 对每道题说明“已覆盖什么、缺失什么、下一步如何补强”，避免空泛评价。
+4. 只输出合法 JSON，不要输出 markdown、代码块或额外说明。
 
 目标岗位：{role_name}
 
-规则评分：
-- 技术能力分：{scores["techScore"]}
-- 表达能力分：{scores["expressionScore"]}
-- 逻辑严谨性分：{scores["logicScore"]}
-- 岗位匹配度分：{scores["matchScore"]}
-- 综合得分：{scores["totalScore"]}
+最终分数：
+{json.dumps(scores, ensure_ascii=False, indent=2)}
 
-{profile_block}
+旧规则分：
+{json.dumps(legacy_scores, ensure_ascii=False, indent=2)}
 
-本次作答信息：
-{answer_block}
+矩阵分：
+{json.dumps(matrix_scores, ensure_ascii=False, indent=2)}
 
-请严格输出 JSON，且不要输出任何额外解释。格式如下：
+逐题特征矩阵：
+{json.dumps(feature_matrix, ensure_ascii=False, indent=2)}
+
+历史表现摘要：
+{json.dumps(profile_summary, ensure_ascii=False, indent=2)}
+
+候选人作答：
+{chr(10).join(answer_text)}
+
+请严格输出如下 JSON 结构：
 {{
-  "summary": "一句本次整体总结",
-  "historicalInsight": "一句结合历史表现的阶段性判断",
-  "strengths": ["亮点1", "亮点2", "亮点3"],
-  "weaknesses": ["不足1", "不足2", "不足3"],
+  "summary": "总评，说明整体能力水平、主要依据和最需要提升的方向",
+  "historicalInsight": "结合历史摘要给出的趋势观察；没有历史数据则返回空字符串",
+  "strengths": ["优势1", "优势2", "优势3"],
+  "weaknesses": ["短板1", "短板2", "短板3"],
   "suggestions": ["建议1", "建议2", "建议3"],
-  "historicalSuggestions": ["结合历史的建议1", "结合历史的建议2"],
+  "historicalSuggestions": ["历史维度建议1", "历史维度建议2"],
   "questionReports": [
     {{
-      "question": "题目1",
-      "comment": "对这道题的点评",
-      "advice": "对这道题的改进建议"
+      "question": "题目原文",
+      "comment": "结合矩阵特征说明本题表现",
+      "coveredKeyPoints": ["已覆盖关键点"],
+      "missingKeyPoints": ["缺失关键点"],
+      "advice": "下一步补强建议"
     }}
   ]
 }}
-
-要求：
-1. strengths / weaknesses / suggestions / historicalSuggestions / questionReports 都必须是结构化内容
-2. historicalInsight 必须体现“和过去相比”的判断
-3. questionReports 的数量要与题目数量一致
-4. 反馈必须结合题目的关键点和评分重点
-5. 要明确指出候选人的回答答到了哪些关键点，缺少哪些关键点
-6. 可以参考“优秀参考回答”的思路，但不要照抄
-7. 语言简洁、具体、可执行
-8. 不要输出 markdown，不要加代码块
 """.strip()
-
-    return prompt
 
 
 def call_llm_for_feedback(payload: dict):
@@ -113,14 +102,17 @@ def call_llm_for_feedback(payload: dict):
         "messages": [
             {
                 "role": "system",
-                "content": "你是一个严格输出 JSON 的技术面试评估助手。"
+                "content": (
+                    "你是严格输出 JSON 的技术面试评估助手。"
+                    "后端已经完成打分，你只负责基于特征矩阵解释依据、总结优劣势并给出改进建议。"
+                )
             },
             {
                 "role": "user",
                 "content": prompt
             }
         ],
-        "temperature": 0.3
+        "temperature": 0.2
     }
 
     headers = {
@@ -252,170 +244,34 @@ def detect_followup_mode(payload: dict) -> str:
 
 
 def build_followup_prompt(payload: dict) -> str:
-    followup_mode = payload["followUpMode"]
-
-    mode_instruction_map = {
-        "project_brief": """
-请生成“项目补细节型追问”。
-目标：
-- 补充候选人刚才没有说清楚的职责、模块、实现内容
-- 优先问具体负责什么、怎么实现、做了什么优化
-禁止：
-- 不要问抽象空泛问题
-- 不要问“能否详细介绍如何在项目中应用”这类宽泛句式
-""".strip(),
-
-        "project_detail": """
-请生成“项目深挖型追问”。
-目标：
-- 深挖技术难点
-- 深挖方案选择原因
-- 深挖优化效果
-禁止：
-- 不要退回到只问“你具体负责什么”
-""".strip(),
-
-        "project_verification": """
-请生成“项目验证型追问”。
-目标：
-- 验证候选人是否真的理解方案
-- 追问改进点、局限性、边界情况、重做思路
-强约束：
-- 如果候选人的回答已经包含项目职责、技术方案或优化过程，请不要再追问“你具体做了什么”或“你如何应用”
-- 应优先追问“为什么这样选”“如果重做会如何改进”“这种方案什么时候不适用”
-""".strip(),
-
-        "technical_usage": """
-请生成“技术用途补充型追问”。
-适用场景：
-- 候选人只说了这个技术点“用来做什么”
-- 但没有说项目中怎么落地、解决了什么具体问题
-
-目标：
-- 追问项目中的具体使用方式
-- 追问为什么需要用它
-- 追问它解决了什么实际问题
-
-强约束：
-- 不要问“原理是什么”
-- 不要问“适用场景是什么”
-- 不要生成宽泛问题
-优先问法：
-- 你们项目里哪些数据会放到 Redis？
-- 为什么这些数据适合放缓存？
-- 你是如何设置缓存过期时间的？
-""".strip(),
-
-        "technical_principle": """
-请生成“技术原理型追问”。
-适用场景：
-- 候选人已经提到了项目中如何用
-- 但还没有讲清底层机制或为什么有效
-
-目标：
-- 追问底层原理
-- 追问为什么这样设计
-- 追问为什么能解决问题
-
-强约束：
-- 不要再问“项目里怎么用”
-- 不要只问“适用场景”
-优先问法：
-- Redis 相比直接查 MySQL，为什么性能更高？
-- 缓存为什么会带来一致性问题？
-- 这个方案为什么能减少数据库压力？
-""".strip(),
-
-        "technical_verification": """
-请生成“技术验证型追问”。
-适用场景：
-- 候选人已经提到了用途、实现方式，甚至还提到了过期时间、一致性、穿透、击穿、雪崩等内容
-
-目标：
-- 验证候选人是否真正理解该技术点
-- 优先追问局限、边界、风险、取舍、替代方案、改进点
-
-强约束：
-- 如果候选人的回答已经提到了 Redis 的用途、缓存目标、过期时间或缓存问题，请不要再追问“原理或适用场景”
-- 不要再问“它怎么应用”
-- 不要再问“项目里怎么使用”
-优先问法：
-- 你们是如何处理缓存与数据库一致性的？
-- 如果缓存大面积同时失效，会有什么风险？
-- 在什么情况下 Redis 反而可能带来问题？
-- 如果让你重新设计这套缓存方案，你会改进什么？
-""".strip(),
-
-        "scenario_brief": """
-请生成“场景补步骤型追问”。
-目标：
-- 补充排查顺序
-- 补充分析步骤
-- 补充落地方案
-""".strip(),
-
-        "scenario_analysis": """
-请生成“场景分析型追问”。
-目标：
-- 深挖排查思路
-- 深挖验证方法
-- 深挖解决路径
-""".strip(),
-
-        "scenario_tradeoff": """
-请生成“场景取舍型追问”。
-目标：
-- 追问方案之间的取舍
-- 追问约束条件变化后的处理
-- 追问线上环境限制下的决策
-强约束：
-- 不要再问“先做什么”
-- 优先问“如果不能重启怎么办”“如果代价过高怎么办”“如何权衡方案”
-""".strip(),
-
-        "verification": """
-请生成“反问验证型追问”。
-目标：
-- 检查候选人是否真正理解刚才的回答
-- 优先问改进点、局限、风险、边界情况
-""".strip()
-    }
-
-    mode_instruction = mode_instruction_map.get(
-        followup_mode,
-        mode_instruction_map["verification"]
-    )
+    mode = payload.get("followUpMode", "expand")
+    mode_instruction = {
+        "too_short": "候选人回答过短，请追问一个能引导其补充核心技术点、实现过程或项目细节的问题。",
+        "too_generic": "候选人回答偏泛，请追问一个要求其说明具体方案、取舍依据或落地细节的问题。",
+        "technical_depth": "候选人已经覆盖基础内容，请追问一个更深入的原理、边界条件、性能或可靠性问题。",
+        "scenario_based": "候选人回答具备场景信息，请追问一个真实排查、优化、权衡或复盘类问题。",
+        "project_detail": "候选人提到项目经历，请追问其个人职责、关键实现、难点处理或结果验证。",
+        "normal": "请围绕当前题目和回答，提出一个自然、具体、有区分度的追问问题。"
+    }.get(mode, "请围绕当前题目和回答，提出一个自然、具体、有区分度的追问问题。")
 
     return f"""
-你是一名技术面试官，请基于候选人的目标岗位、题目类型、当前题目、候选人的回答，以及题库提供的追问参考信息，生成一个更深入、更具体的追问问题。
+你是一名技术面试官，请根据题目、候选人回答和题库参考信息生成一个追问问题。
 
-本次追问类型：{followup_mode}
+追问要求：
+1. 只输出一个问题，不要解释原因。
+2. 问题必须贴合候选人的当前回答，避免模板化。
+3. 优先追问缺失关键点、实现细节、边界条件、性能权衡或项目落地结果。
+4. 问题长度控制在 35 字以内。
 
-附加要求：
-{mode_instruction}
+追问策略：{mode_instruction}
 
-题库参考信息：
-- 题目关键点：{payload.get("keyPoints", "")}
-- 评分重点：{payload.get("scoringFocus", "")}
-- 基础参考回答：{payload.get("referenceAnswerBasic", "")}
-- 优秀参考回答：{payload.get("referenceAnswerGood", "")}
-- 追问重点：{payload.get("followupFocus", "")}
-- 追问示例：{payload.get("followupExamples", "")}
-
-通用要求：
-1. 只输出一句追问问题
-2. 追问必须和当前回答强相关
-3. 优先参考“追问重点”和“追问示例”，但不要照抄
-4. 追问要体现技术面试风格
-5. 不要输出解释，不要输出编号，不要输出 JSON
-6. 不要总是重复“你能详细介绍如何在项目中应用吗”这类表达
-7. 问法要自然，像真实面试官
-8. 问题要尽量有区分度，不要和低质量回答时的追问过于相似
-
-目标岗位：{payload["roleName"]}
-题型：{payload["type"]}
-当前题目：{payload["question"]}
-候选人回答：{payload["answer"]}
+目标岗位：{payload.get("roleName", "")}
+题型：{payload.get("type", "")}
+当前题目：{payload.get("question", "")}
+候选人回答：{payload.get("answer", "")}
+题库关键点：{payload.get("keyPoints", "")}
+评分重点：{payload.get("scoringFocus", "")}
+追问关注点：{payload.get("followupFocus", "")}
 """.strip()
 
 
@@ -436,14 +292,14 @@ def call_llm_for_followup(payload: dict) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "你是一名技术面试官，请输出一句简洁、具体、贴合回答内容的追问问题。"
+                "content": "你是一名技术面试官。请只输出一个简洁、具体、贴合回答内容的追问问题。"
             },
             {
                 "role": "user",
                 "content": prompt
             }
         ],
-        "temperature": 0.7
+        "temperature": 0.6
     }
 
     headers = {
@@ -459,9 +315,9 @@ def call_llm_for_followup(payload: dict) -> str:
         data = response.json()
 
     content = data["choices"][0]["message"]["content"].strip()
-    content = content.replace("```", "").strip()
+    return content.replace("```", "").strip()
 
-    return content
+
 def build_profile_summary_prompt(payload: dict) -> str:
     return f"""
 你是一名技术面试成长分析助手。请根据用户历史面试摘要，生成个性化成长总结。
@@ -535,3 +391,219 @@ def call_llm_for_profile_summary(payload: dict):
         "aiSummary": result.get("aiSummary", ""),
         "aiSuggestions": result.get("aiSuggestions", [])
     }
+
+
+def call_llm_for_job_preparation(payload: dict):
+    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
+        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
+
+    prompt = f"""
+你是一名求职辅导助手。请基于候选人简历、目标职位和规则匹配结果，生成求职准备建议。
+
+约束：
+1. 只能建议如何表达真实经历；严禁建议虚构项目、技能、学历或工作经历。
+2. 不要代表用户投递或联系招聘方。
+3. 只输出合法 JSON，不能使用 markdown 或代码块。
+
+简历文本：{payload.get('resumeText', '')}
+目标岗位：{payload.get('jobTitle', '')}
+公司：{payload.get('company', '')}
+职位要求：{payload.get('jobRequirements', '')}
+职位描述：{payload.get('jobDescription', '')}
+规则匹配结果：{json.dumps(payload.get('match', {}), ensure_ascii=False)}
+
+输出：
+{{
+  "summary": "一句针对该职位的准备判断",
+  "resumeActions": ["简历优化建议，2-4条"],
+  "interviewFocus": ["面试准备点，2-4条"],
+  "nextActions": ["下一步执行动作，2-4条"]
+}}
+""".strip()
+    body = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": "你是严格输出 JSON 的求职准备助手，不得建议虚构经历。"},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3
+    }
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(api_url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+    content = data["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.replace("```json", "").replace("```", "").strip()
+    result = json.loads(content)
+    return {
+        "source": "llm",
+        "summary": result.get("summary", ""),
+        "resumeActions": result.get("resumeActions", []),
+        "interviewFocus": result.get("interviewFocus", []),
+        "nextActions": result.get("nextActions", [])
+    }
+
+
+def call_llm_for_daily_action_plan(payload: dict):
+    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
+        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
+    prompt = f"""
+你是一名求职 Agent。请根据候选人简历状态、职位列表和规则初稿，给出今天最可执行的求职行动计划。
+
+约束：
+1. 不能建议虚构经历、自动投递、自动发送消息或绕过招聘平台。
+2. 高优先级只留给正在面试、简历缺失或确实应立即处理的事项。
+3. 只输出合法 JSON，不要使用 markdown。
+
+简历是否已保存：{bool(payload.get('resume'))}
+职位数据：{json.dumps(payload.get('jobs', []), ensure_ascii=False)}
+规则初稿：{json.dumps(payload.get('rulePlan', {}), ensure_ascii=False)}
+
+输出：
+{{
+  "summary": "一句今日策略总结",
+  "actions": [
+    {{"priority": "high|medium|low", "title": "简洁任务名", "description": "具体且可执行的说明", "jobId": 1}}
+  ]
+}}
+""".strip()
+    body = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": "你是严格输出 JSON 的求职 Agent，始终尊重用户确认和真实经历。"},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.25
+    }
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(api_url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+    content = data["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.replace("```json", "").replace("```", "").strip()
+    result = json.loads(content)
+    actions = result.get("actions", [])
+    if not isinstance(actions, list):
+        actions = []
+    normalized_actions = []
+    for action in actions[:4]:
+        if not isinstance(action, dict) or not action.get("title") or not action.get("description"):
+            continue
+        priority = action.get("priority")
+        normalized_actions.append({
+            "priority": priority if priority in {"high", "medium", "low"} else "medium",
+            "title": str(action["title"]),
+            "description": str(action["description"]),
+            "jobId": action.get("jobId")
+        })
+    if not normalized_actions:
+        raise ValueError("LLM 未返回有效行动计划")
+    return {"source": "llm", "summary": result.get("summary", ""), "actions": normalized_actions}
+
+
+def call_llm_for_tailored_resume(payload: dict):
+    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
+        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
+    prompt = f"""
+你是一名简历优化助手。请仅基于原始简历真实存在的信息，生成适配目标职位的中文简历草稿。
+
+严格约束：
+1. 不得编造公司、项目、学历、技能、业绩、年限或数据；无法确认的数据应删去或保留原表述。
+2. 优化重点是排序、措辞、结构和与 JD 的真实关联，不是夸大。
+3. 只输出合法 JSON，不要使用 markdown 代码块。
+
+原始简历：{payload.get('resumeText', '')}
+目标职位：{payload.get('jobTitle', '')}
+公司：{payload.get('company', '')}
+职位要求：{payload.get('jobRequirements', '')}
+职位描述：{payload.get('jobDescription', '')}
+匹配结果：{json.dumps(payload.get('match', {}), ensure_ascii=False)}
+
+输出：
+{{
+  "title": "适配职位的简历版本名称",
+  "content": "完整可编辑的中文简历草稿纯文本"
+}}
+""".strip()
+    body = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": "你是严格输出 JSON 的简历优化助手，绝不编造候选人经历。"},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
+    }
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(api_url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+    content = data["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.replace("```json", "").replace("```", "").strip()
+    result = json.loads(content)
+    if not result.get("content"):
+        raise ValueError("LLM 未返回简历草稿")
+    return {"source": "llm", "title": result.get("title", "JD 定制简历草稿"), "content": result["content"]}
+
+
+def call_llm_for_job_interview_questions(payload: dict):
+    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
+        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
+    prompt = f"""
+你是一名技术面试官。请根据候选人的真实简历、目标 JD 和技能匹配结果，生成 5 道中文专项模拟面试题。
+
+要求：
+1. 题目必须围绕目标职位和候选人真实经历，不得假定候选人拥有简历中不存在的技能或项目。
+2. 覆盖项目经历、技术深度和场景分析三类问题。
+3. 只输出合法 JSON，不要 markdown。
+
+候选人简历：{payload.get('resumeText', '')}
+目标职位：{payload.get('jobTitle', '')}
+公司：{payload.get('company', '')}
+职位要求：{payload.get('jobRequirements', '')}
+职位描述：{payload.get('jobDescription', '')}
+匹配结果：{json.dumps(payload.get('match', {}), ensure_ascii=False)}
+
+输出：
+{{"questions":[{{"content":"题目", "type":"project|technical|scenario", "difficulty":"easy|medium|hard"}}]}}
+""".strip()
+    body = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": "你是严格输出 JSON 的技术面试官，题目必须基于真实候选人信息。"},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.45
+    }
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
+    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(api_url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+    content = data["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.replace("```json", "").replace("```", "").strip()
+    result = json.loads(content)
+    questions = result.get("questions", [])
+    normalized = []
+    for index, item in enumerate(questions[:5]):
+        if not isinstance(item, dict) or not str(item.get("content", "")).strip():
+            continue
+        normalized.append({
+            "id": f"job-ai-{index + 1}",
+            "content": str(item["content"]).strip(),
+            "type": item.get("type") if item.get("type") in {"project", "technical", "scenario"} else "technical",
+            "difficulty": item.get("difficulty") if item.get("difficulty") in {"easy", "medium", "hard"} else "medium"
+        })
+    if len(normalized) < 3:
+        raise ValueError("LLM 未返回足够的专项面试题")
+    return normalized
