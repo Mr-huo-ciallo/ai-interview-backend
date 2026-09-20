@@ -15,6 +15,49 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 
 
+def _require_llm_config() -> None:
+    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
+        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
+
+
+def _strip_code_fence(content: str) -> str:
+    content = content.strip()
+    if content.startswith("```"):
+        return content.replace("```json", "").replace("```", "").strip()
+    return content
+
+
+def _chat_completion(system_prompt: str, user_prompt: str, temperature: float) -> str:
+    _require_llm_config()
+    body = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+    }
+    headers = {
+        "Authorization": f"Bearer {LLM_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(api_url, headers=headers, json=body)
+        response.raise_for_status()
+        data = response.json()
+
+    return _strip_code_fence(data["choices"][0]["message"]["content"])
+
+
+def _chat_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
+    result = json.loads(_chat_completion(system_prompt, user_prompt, temperature))
+    if not isinstance(result, dict):
+        raise ValueError("LLM 返回结果必须是 JSON 对象")
+    return result
+
+
 def build_prompt(payload: dict) -> str:
     role_name = payload.get("roleName") or payload.get("role") or "目标岗位"
     answers = payload.get("answers", [])
@@ -92,47 +135,13 @@ def build_prompt(payload: dict) -> str:
 
 
 def call_llm_for_feedback(payload: dict):
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
-        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
-
     prompt = build_prompt(payload)
-
-    body = {
-        "model": LLM_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "你是严格输出 JSON 的技术面试评估助手。"
-                    "后端已经完成打分，你只负责基于特征矩阵解释依据、总结优劣势并给出改进建议。"
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.2
-    }
-
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
-
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(api_url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
-
-    content = data["choices"][0]["message"]["content"].strip()
-
-    if content.startswith("```"):
-        content = content.replace("```json", "").replace("```", "").strip()
-
-    result = json.loads(content)
+    result = _chat_json(
+        "你是严格输出 JSON 的技术面试评估助手。"
+        "后端已经完成打分，你只负责基于特征矩阵解释依据、总结优劣势并给出改进建议。",
+        prompt,
+        0.2,
+    )
 
     return {
         "summary": result.get("summary", ""),
@@ -276,9 +285,6 @@ def build_followup_prompt(payload: dict) -> str:
 
 
 def call_llm_for_followup(payload: dict) -> str:
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
-        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
-
     followup_mode = detect_followup_mode(payload)
     print("当前追问模式：", followup_mode)
 
@@ -287,35 +293,11 @@ def call_llm_for_followup(payload: dict) -> str:
         "followUpMode": followup_mode
     })
 
-    body = {
-        "model": LLM_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "你是一名技术面试官。请只输出一个简洁、具体、贴合回答内容的追问问题。"
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.6
-    }
-
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
-
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(api_url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
-
-    content = data["choices"][0]["message"]["content"].strip()
-    return content.replace("```", "").strip()
+    return _chat_completion(
+        "你是一名技术面试官。请只输出一个简洁、具体、贴合回答内容的追问问题。",
+        prompt,
+        0.6,
+    ).replace("```", "").strip()
 
 
 def build_profile_summary_prompt(payload: dict) -> str:
@@ -348,44 +330,12 @@ def build_profile_summary_prompt(payload: dict) -> str:
 
 
 def call_llm_for_profile_summary(payload: dict):
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
-        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
-
     prompt = build_profile_summary_prompt(payload)
-
-    body = {
-        "model": LLM_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "你是一个严格输出 JSON 的技术面试成长分析助手。"
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.4
-    }
-
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
-
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(api_url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
-
-    content = data["choices"][0]["message"]["content"].strip()
-
-    if content.startswith("```"):
-        content = content.replace("```json", "").replace("```", "").strip()
-
-    result = json.loads(content)
+    result = _chat_json(
+        "你是一个严格输出 JSON 的技术面试成长分析助手。",
+        prompt,
+        0.4,
+    )
 
     return {
         "aiSummary": result.get("aiSummary", ""),
@@ -394,9 +344,6 @@ def call_llm_for_profile_summary(payload: dict):
 
 
 def call_llm_for_job_preparation(payload: dict):
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
-        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
-
     prompt = f"""
 你是一名求职辅导助手。请基于候选人简历、目标职位和规则匹配结果，生成求职准备建议。
 
@@ -420,24 +367,11 @@ def call_llm_for_job_preparation(payload: dict):
   "nextActions": ["下一步执行动作，2-4条"]
 }}
 """.strip()
-    body = {
-        "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": "你是严格输出 JSON 的求职准备助手，不得建议虚构经历。"},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.3
-    }
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(api_url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
-    if content.startswith("```"):
-        content = content.replace("```json", "").replace("```", "").strip()
-    result = json.loads(content)
+    result = _chat_json(
+        "你是严格输出 JSON 的求职准备助手，不得建议虚构经历。",
+        prompt,
+        0.3,
+    )
     return {
         "source": "llm",
         "summary": result.get("summary", ""),
@@ -448,8 +382,6 @@ def call_llm_for_job_preparation(payload: dict):
 
 
 def call_llm_for_daily_action_plan(payload: dict):
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
-        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
     prompt = f"""
 你是一名求职 Agent。请根据候选人简历状态、职位列表和规则初稿，给出今天最可执行的求职行动计划。
 
@@ -470,24 +402,11 @@ def call_llm_for_daily_action_plan(payload: dict):
   ]
 }}
 """.strip()
-    body = {
-        "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": "你是严格输出 JSON 的求职 Agent，始终尊重用户确认和真实经历。"},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.25
-    }
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(api_url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
-    if content.startswith("```"):
-        content = content.replace("```json", "").replace("```", "").strip()
-    result = json.loads(content)
+    result = _chat_json(
+        "你是严格输出 JSON 的求职 Agent，始终尊重用户确认和真实经历。",
+        prompt,
+        0.25,
+    )
     actions = result.get("actions", [])
     if not isinstance(actions, list):
         actions = []
@@ -508,8 +427,6 @@ def call_llm_for_daily_action_plan(payload: dict):
 
 
 def call_llm_for_tailored_resume(payload: dict):
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
-        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
     prompt = f"""
 你是一名简历优化助手。请仅基于原始简历真实存在的信息，生成适配目标职位的中文简历草稿。
 
@@ -531,32 +448,17 @@ def call_llm_for_tailored_resume(payload: dict):
   "content": "完整可编辑的中文简历草稿纯文本"
 }}
 """.strip()
-    body = {
-        "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": "你是严格输出 JSON 的简历优化助手，绝不编造候选人经历。"},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2
-    }
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(api_url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
-    if content.startswith("```"):
-        content = content.replace("```json", "").replace("```", "").strip()
-    result = json.loads(content)
+    result = _chat_json(
+        "你是严格输出 JSON 的简历优化助手，绝不编造候选人经历。",
+        prompt,
+        0.2,
+    )
     if not result.get("content"):
         raise ValueError("LLM 未返回简历草稿")
     return {"source": "llm", "title": result.get("title", "JD 定制简历草稿"), "content": result["content"]}
 
 
 def call_llm_for_job_interview_questions(payload: dict):
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
-        raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
     prompt = f"""
 你是一名技术面试官。请根据候选人的真实简历、目标 JD 和技能匹配结果，生成 5 道中文专项模拟面试题。
 
@@ -575,24 +477,11 @@ def call_llm_for_job_interview_questions(payload: dict):
 输出：
 {{"questions":[{{"content":"题目", "type":"project|technical|scenario", "difficulty":"easy|medium|hard"}}]}}
 """.strip()
-    body = {
-        "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": "你是严格输出 JSON 的技术面试官，题目必须基于真实候选人信息。"},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.45
-    }
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(api_url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
-    if content.startswith("```"):
-        content = content.replace("```json", "").replace("```", "").strip()
-    result = json.loads(content)
+    result = _chat_json(
+        "你是严格输出 JSON 的技术面试官，题目必须基于真实候选人信息。",
+        prompt,
+        0.45,
+    )
     questions = result.get("questions", [])
     normalized = []
     for index, item in enumerate(questions[:5]):
