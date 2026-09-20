@@ -83,6 +83,8 @@ from scoring.rules import (
 from scoring.matrix import build_feature_matrix, blend_scores
 from scoring.config import SUPPORTED_ROLES
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 
 security = HTTPBearer(auto_error=False)
@@ -286,7 +288,7 @@ def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
 
     try:
         question_meta = get_question_by_role_and_content(db, data.role, data.question)
-        print("追问题库信息：", question_meta)
+        logger.debug("追问题库信息已加载 role=%s found=%s", data.role, bool(question_meta))
 
         llm_question = call_llm_for_followup({
             "role": data.role,
@@ -307,8 +309,8 @@ def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
         if llm_question:
             follow_up_question = llm_question
 
-    except Exception as e:
-        print("追问生成失败，已回退到默认追问：", e)
+    except Exception:
+        logger.warning("追问生成失败，已回退到默认追问", exc_info=True)
 
     return {
         "followUpQuestion": follow_up_question
@@ -435,10 +437,10 @@ def generate_report(
                     })
                     profile_summary["aiSummary"] = profile_llm_result.get("aiSummary", "")
                     profile_summary["aiSuggestions"] = profile_llm_result.get("aiSuggestions", [])
-                except Exception as e:
-                    print("历史摘要 AI 生成失败，继续使用规则摘要：", e)
-        except Exception as e:
-            print("读取历史摘要失败：", e)
+                except Exception:
+                    logger.warning("历史摘要 AI 生成失败，继续使用规则摘要", exc_info=True)
+        except Exception:
+            logger.warning("读取历史摘要失败", exc_info=True)
 
     try:
         llm_result = call_llm_for_feedback({
@@ -482,8 +484,8 @@ def generate_report(
         if llm_result.get("questionReports"):
             question_reports = llm_result["questionReports"]
 
-    except Exception as e:
-        print("LLM 调用失败，已回退到规则反馈：", e)
+    except Exception:
+        logger.warning("LLM 调用失败，已回退到规则反馈", exc_info=True)
 
     return {
         "role": data.role,
@@ -647,8 +649,8 @@ def get_profile_summary(current_user=Depends(require_current_user), db=Depends(g
         })
         ai_summary = llm_result.get("aiSummary", "")
         ai_suggestions = llm_result.get("aiSuggestions", [])
-    except Exception as e:
-        print("个人成长摘要 AI 生成失败，已回退到规则摘要：", e)
+    except Exception:
+        logger.warning("个人成长摘要 AI 生成失败，已回退到规则摘要", exc_info=True)
 
     return {
         "userId": user.id,
@@ -802,8 +804,8 @@ def prepare_for_career_job(
         })
         if llm_result.get("summary"):
             preparation = llm_result
-    except Exception as error:
-        print("职位准备建议 AI 生成失败，已回退到规则建议：", error)
+    except Exception:
+        logger.warning("职位准备建议 AI 生成失败，已回退到规则建议", exc_info=True)
 
     return {"jobId": job_id, "preparation": preparation}
 
@@ -837,8 +839,8 @@ def generate_tailored_resume_draft(
             "match": match
         })
         draft = llm_result
-    except Exception as error:
-        print("定制简历草稿 AI 生成失败，已回退到原始简历：", error)
+    except Exception:
+        logger.warning("定制简历草稿 AI 生成失败，已回退到原始简历", exc_info=True)
     return {"jobId": job_id, "draft": draft}
 
 
@@ -870,8 +872,8 @@ def generate_job_interview_questions(
         if llm_questions:
             questions = llm_questions
             source = "llm"
-    except Exception as error:
-        print("JD 专项面试题 AI 生成失败，已回退到规则题目：", error)
+    except Exception:
+        logger.warning("JD 专项面试题 AI 生成失败，已回退到规则题目", exc_info=True)
     return {"jobId": job_id, "source": source, "questions": questions}
 
 
@@ -904,6 +906,6 @@ def get_career_action_plan(current_user=Depends(require_current_user), db=Depend
         })
         if llm_result.get("summary"):
             plan = llm_result
-    except Exception as error:
-        print("每日行动计划 AI 生成失败，已回退到规则计划：", error)
+    except Exception:
+        logger.warning("每日行动计划 AI 生成失败，已回退到规则计划", exc_info=True)
     return {"plan": plan}

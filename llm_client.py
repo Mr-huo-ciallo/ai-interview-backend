@@ -1,6 +1,11 @@
-import os
 import json
+import logging
+import os
+
 import httpx
+
+
+logger = logging.getLogger(__name__)
 
 try:
     from dotenv import load_dotenv
@@ -286,7 +291,7 @@ def build_followup_prompt(payload: dict) -> str:
 
 def call_llm_for_followup(payload: dict) -> str:
     followup_mode = detect_followup_mode(payload)
-    print("当前追问模式：", followup_mode)
+    logger.debug("当前追问模式 mode=%s", followup_mode)
 
     prompt = build_followup_prompt({
         **payload,
