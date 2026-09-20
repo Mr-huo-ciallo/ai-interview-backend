@@ -32,7 +32,7 @@ from llm_client import (
     call_llm_for_tailored_resume,
     call_llm_for_job_interview_questions
 )
-from db import Base, SessionLocal, engine, get_db
+from db import Base, engine, get_db
 from config import AUTO_CREATE_TABLES, validate_runtime_config
 from observability import RequestLoggingMiddleware, configure_logging, get_request_id
 from models import HistoryRecordModel, InterviewQuestionModel
@@ -317,7 +317,11 @@ def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
 
 
 @app.post("/api/report/generate")
-def generate_report(data: InterviewSubmitRequest, current_user=Depends(get_optional_current_user)):
+def generate_report(
+    data: InterviewSubmitRequest,
+    current_user=Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
     answer_texts = []
     for item in data.answers:
         merged_text = item.answer
@@ -326,192 +330,188 @@ def generate_report(data: InterviewSubmitRequest, current_user=Depends(get_optio
             merged_text += " " + follow_up_answer
         answer_texts.append(merged_text)
 
-    db = SessionLocal()
-    try:
-        enriched_answers = []
+    enriched_answers = []
 
-        for item in data.answers:
-            question_meta = get_question_by_role_and_content(db, data.role, item.question)
+    for item in data.answers:
+        question_meta = get_question_by_role_and_content(db, data.role, item.question)
 
-            enriched_answers.append({
-                "question": item.question,
-                "type": item.type,
-                "answer": item.answer,
-                "followUpQuestion": item.followUpQuestion,
-                "followUpAnswer": item.followUpAnswer,
-                "difficulty": question_meta.get("difficulty") if question_meta else "",
-                "tags": question_meta.get("tags") if question_meta else "",
-                "keyPoints": question_meta.get("keyPoints") if question_meta else "",
-                "scoringFocus": question_meta.get("scoringFocus") if question_meta else "",
-                "referenceAnswerBasic": question_meta.get("referenceAnswerBasic") if question_meta else "",
-                "referenceAnswerGood": question_meta.get("referenceAnswerGood") if question_meta else "",
-                "followupFocus": question_meta.get("followupFocus") if question_meta else "",
-                "followupExamples": question_meta.get("followupExamples") if question_meta else ""
-            })
+        enriched_answers.append({
+            "question": item.question,
+            "type": item.type,
+            "answer": item.answer,
+            "followUpQuestion": item.followUpQuestion,
+            "followUpAnswer": item.followUpAnswer,
+            "difficulty": question_meta.get("difficulty") if question_meta else "",
+            "tags": question_meta.get("tags") if question_meta else "",
+            "keyPoints": question_meta.get("keyPoints") if question_meta else "",
+            "scoringFocus": question_meta.get("scoringFocus") if question_meta else "",
+            "referenceAnswerBasic": question_meta.get("referenceAnswerBasic") if question_meta else "",
+            "referenceAnswerGood": question_meta.get("referenceAnswerGood") if question_meta else "",
+            "followupFocus": question_meta.get("followupFocus") if question_meta else "",
+            "followupExamples": question_meta.get("followupExamples") if question_meta else ""
+        })
 
-        legacy_tech_score = calculate_tech_score(data.role, answer_texts)
-        legacy_expression_score = calculate_expression_score(answer_texts)
-        legacy_logic_score = calculate_logic_score(answer_texts)
-        legacy_match_score = calculate_match_score(data.role, answer_texts)
+    legacy_tech_score = calculate_tech_score(data.role, answer_texts)
+    legacy_expression_score = calculate_expression_score(answer_texts)
+    legacy_logic_score = calculate_logic_score(answer_texts)
+    legacy_match_score = calculate_match_score(data.role, answer_texts)
 
-        bonus_result = calculate_type_bonus(data.role, [item.model_dump() for item in data.answers])
+    bonus_result = calculate_type_bonus(data.role, [item.model_dump() for item in data.answers])
 
-        legacy_tech_score = min(legacy_tech_score + bonus_result["tech_bonus"], 95)
-        legacy_expression_score = min(legacy_expression_score + bonus_result["expression_bonus"], 95)
-        legacy_logic_score = min(legacy_logic_score + bonus_result["logic_bonus"], 95)
-        legacy_match_score = min(legacy_match_score + bonus_result["match_bonus"], 95)
+    legacy_tech_score = min(legacy_tech_score + bonus_result["tech_bonus"], 95)
+    legacy_expression_score = min(legacy_expression_score + bonus_result["expression_bonus"], 95)
+    legacy_logic_score = min(legacy_logic_score + bonus_result["logic_bonus"], 95)
+    legacy_match_score = min(legacy_match_score + bonus_result["match_bonus"], 95)
 
-        legacy_total_score = calculate_total_score(
-            data.role,
-            legacy_tech_score,
-            legacy_expression_score,
-            legacy_logic_score,
-            legacy_match_score
-        )
-        legacy_scores = {
-            "techScore": legacy_tech_score,
-            "expressionScore": legacy_expression_score,
-            "logicScore": legacy_logic_score,
-            "matchScore": legacy_match_score,
-            "totalScore": legacy_total_score
-        }
+    legacy_total_score = calculate_total_score(
+        data.role,
+        legacy_tech_score,
+        legacy_expression_score,
+        legacy_logic_score,
+        legacy_match_score
+    )
+    legacy_scores = {
+        "techScore": legacy_tech_score,
+        "expressionScore": legacy_expression_score,
+        "logicScore": legacy_logic_score,
+        "matchScore": legacy_match_score,
+        "totalScore": legacy_total_score
+    }
 
-        matrix_result = build_feature_matrix(data.role, enriched_answers)
-        final_scores = blend_scores(matrix_result["scores"], legacy_scores, matrix_weight=0.7)
-        feature_matrix = matrix_result["questionRows"]
+    matrix_result = build_feature_matrix(data.role, enriched_answers)
+    final_scores = blend_scores(matrix_result["scores"], legacy_scores, matrix_weight=0.7)
+    feature_matrix = matrix_result["questionRows"]
 
-        tech_score = final_scores["techScore"]
-        expression_score = final_scores["expressionScore"]
-        logic_score = final_scores["logicScore"]
-        match_score = final_scores["matchScore"]
-        total_score = final_scores["totalScore"]
+    tech_score = final_scores["techScore"]
+    expression_score = final_scores["expressionScore"]
+    logic_score = final_scores["logicScore"]
+    match_score = final_scores["matchScore"]
+    total_score = final_scores["totalScore"]
 
-        summary = "整体能够完成本次模拟面试，但部分回答仍可进一步补充技术细节和表达层次。"
-        historical_insight = ""
-        historical_suggestions = []
+    summary = "整体能够完成本次模拟面试，但部分回答仍可进一步补充技术细节和表达层次。"
+    historical_insight = ""
+    historical_suggestions = []
 
-        strengths = generate_strengths(
-            data.role,
-            tech_score,
-            expression_score,
-            logic_score,
-            match_score
-        )
+    strengths = generate_strengths(
+        data.role,
+        tech_score,
+        expression_score,
+        logic_score,
+        match_score
+    )
 
-        weaknesses = generate_weaknesses(
-            data.role,
-            tech_score,
-            expression_score,
-            logic_score,
-            match_score
-        )
+    weaknesses = generate_weaknesses(
+        data.role,
+        tech_score,
+        expression_score,
+        logic_score,
+        match_score
+    )
 
-        suggestions = generate_suggestions(data.role)
+    suggestions = generate_suggestions(data.role)
 
-        question_reports = []
-        for index, item in enumerate(enriched_answers):
-            matrix_row = feature_matrix[index] if index < len(feature_matrix) else {}
-            features = matrix_row.get("features", {})
-            question_reports.append({
-                "question": item["question"],
-                "comment": "本题已完成作答，系统已结合关键点覆盖、评分重点命中、参考答案相似度和回答结构进行评估。",
-                "coveredKeyPoints": features.get("coveredKeyPoints", []),
-                "missingKeyPoints": features.get("missingKeyPoints", []),
-                "advice": "建议优先补充缺失关键点，并结合原理、边界条件、实际场景或验证方式展开。"
-            })
+    question_reports = []
+    for index, item in enumerate(enriched_answers):
+        matrix_row = feature_matrix[index] if index < len(feature_matrix) else {}
+        features = matrix_row.get("features", {})
+        question_reports.append({
+            "question": item["question"],
+            "comment": "本题已完成作答，系统已结合关键点覆盖、评分重点命中、参考答案相似度和回答结构进行评估。",
+            "coveredKeyPoints": features.get("coveredKeyPoints", []),
+            "missingKeyPoints": features.get("missingKeyPoints", []),
+            "advice": "建议优先补充缺失关键点，并结合原理、边界条件、实际场景或验证方式展开。"
+        })
 
-        profile_summary = {}
-        user_id = current_user.id if current_user else None
-        if user_id:
-            try:
-                profile_summary = get_user_history_summary(db, user_id)
-                user = get_user_by_id(db, user_id)
-                if user:
-                    try:
-                        profile_llm_result = call_llm_for_profile_summary({
-                            "username": user.username,
-                            **profile_summary
-                        })
-                        profile_summary["aiSummary"] = profile_llm_result.get("aiSummary", "")
-                        profile_summary["aiSuggestions"] = profile_llm_result.get("aiSuggestions", [])
-                    except Exception as e:
-                        print("历史摘要 AI 生成失败，继续使用规则摘要：", e)
-            except Exception as e:
-                print("读取历史摘要失败：", e)
-
+    profile_summary = {}
+    user_id = current_user.id if current_user else None
+    if user_id:
         try:
-            llm_result = call_llm_for_feedback({
-                "role": data.role,
-                "roleName": data.roleName,
-                "answers": enriched_answers,
-                "profileSummary": profile_summary,
-                "scores": {
-                    "techScore": tech_score,
-                    "expressionScore": expression_score,
-                    "logicScore": logic_score,
-                    "matchScore": match_score,
-                    "totalScore": total_score,
-                    "confidence": final_scores.get("confidence", 0),
-                    "scoreSource": final_scores.get("scoreSource", ""),
-                    "matrixWeight": final_scores.get("matrixWeight", 0)
-                },
-                "legacyScores": legacy_scores,
-                "matrixScores": matrix_result["scores"],
-                "featureMatrix": feature_matrix
-            })
-
-            if llm_result.get("summary"):
-                summary = llm_result["summary"]
-
-            if llm_result.get("historicalInsight"):
-                historical_insight = llm_result["historicalInsight"]
-
-            if llm_result.get("strengths"):
-                strengths = llm_result["strengths"]
-
-            if llm_result.get("weaknesses"):
-                weaknesses = llm_result["weaknesses"]
-
-            if llm_result.get("suggestions"):
-                suggestions = llm_result["suggestions"]
-
-            if llm_result.get("historicalSuggestions"):
-                historical_suggestions = llm_result["historicalSuggestions"]
-
-            if llm_result.get("questionReports"):
-                question_reports = llm_result["questionReports"]
-
+            profile_summary = get_user_history_summary(db, user_id)
+            user = get_user_by_id(db, user_id)
+            if user:
+                try:
+                    profile_llm_result = call_llm_for_profile_summary({
+                        "username": user.username,
+                        **profile_summary
+                    })
+                    profile_summary["aiSummary"] = profile_llm_result.get("aiSummary", "")
+                    profile_summary["aiSuggestions"] = profile_llm_result.get("aiSuggestions", [])
+                except Exception as e:
+                    print("历史摘要 AI 生成失败，继续使用规则摘要：", e)
         except Exception as e:
-            print("LLM 调用失败，已回退到规则反馈：", e)
+            print("读取历史摘要失败：", e)
 
-        return {
+    try:
+        llm_result = call_llm_for_feedback({
             "role": data.role,
             "roleName": data.roleName,
-            "submitTime": data.submitTime,
-            "answerCount": len(data.answers),
-            "totalScore": total_score,
-            "techScore": tech_score,
-            "expressionScore": expression_score,
-            "logicScore": logic_score,
-            "matchScore": match_score,
-            "summary": summary,
-            "historicalInsight": historical_insight,
-            "strengths": strengths,
-            "weaknesses": weaknesses,
-            "suggestions": suggestions,
-            "historicalSuggestions": historical_suggestions,
-            "questionReports": question_reports,
-            "featureMatrix": feature_matrix,
-            "scoreMeta": {
-                "scoreSource": final_scores.get("scoreSource", ""),
-                "matrixWeight": final_scores.get("matrixWeight", 0),
+            "answers": enriched_answers,
+            "profileSummary": profile_summary,
+            "scores": {
+                "techScore": tech_score,
+                "expressionScore": expression_score,
+                "logicScore": logic_score,
+                "matchScore": match_score,
+                "totalScore": total_score,
                 "confidence": final_scores.get("confidence", 0),
-                "legacyScores": legacy_scores,
-                "matrixScores": matrix_result["scores"]
-            }
+                "scoreSource": final_scores.get("scoreSource", ""),
+                "matrixWeight": final_scores.get("matrixWeight", 0)
+            },
+            "legacyScores": legacy_scores,
+            "matrixScores": matrix_result["scores"],
+            "featureMatrix": feature_matrix
+        })
+
+        if llm_result.get("summary"):
+            summary = llm_result["summary"]
+
+        if llm_result.get("historicalInsight"):
+            historical_insight = llm_result["historicalInsight"]
+
+        if llm_result.get("strengths"):
+            strengths = llm_result["strengths"]
+
+        if llm_result.get("weaknesses"):
+            weaknesses = llm_result["weaknesses"]
+
+        if llm_result.get("suggestions"):
+            suggestions = llm_result["suggestions"]
+
+        if llm_result.get("historicalSuggestions"):
+            historical_suggestions = llm_result["historicalSuggestions"]
+
+        if llm_result.get("questionReports"):
+            question_reports = llm_result["questionReports"]
+
+    except Exception as e:
+        print("LLM 调用失败，已回退到规则反馈：", e)
+
+    return {
+        "role": data.role,
+        "roleName": data.roleName,
+        "submitTime": data.submitTime,
+        "answerCount": len(data.answers),
+        "totalScore": total_score,
+        "techScore": tech_score,
+        "expressionScore": expression_score,
+        "logicScore": logic_score,
+        "matchScore": match_score,
+        "summary": summary,
+        "historicalInsight": historical_insight,
+        "strengths": strengths,
+        "weaknesses": weaknesses,
+        "suggestions": suggestions,
+        "historicalSuggestions": historical_suggestions,
+        "questionReports": question_reports,
+        "featureMatrix": feature_matrix,
+        "scoreMeta": {
+            "scoreSource": final_scores.get("scoreSource", ""),
+            "matrixWeight": final_scores.get("matrixWeight", 0),
+            "confidence": final_scores.get("confidence", 0),
+            "legacyScores": legacy_scores,
+            "matrixScores": matrix_result["scores"]
         }
-    finally:
-        db.close()
+    }
 
 
 @app.post("/api/history/add")
