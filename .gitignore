@@ -5,3 +5,11 @@ __pycache__/
 *.pyc
 *.pyo
 *.log
+
+# Reproducible question-dataset exports and intermediate files
+data/import_*.sql
+data/interview_questions_export.json
+data/*_preview.json
+data/*_preview.csv
+data/*_summary.json
+data/*_translation_cache.json
