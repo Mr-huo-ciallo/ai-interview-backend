@@ -32,7 +32,7 @@ from llm_client import (
     call_llm_for_tailored_resume,
     call_llm_for_job_interview_questions
 )
-from db import SessionLocal, engine, Base
+from db import Base, SessionLocal, engine, get_db
 from config import AUTO_CREATE_TABLES, validate_runtime_config
 from observability import RequestLoggingMiddleware, configure_logging, get_request_id
 from models import HistoryRecordModel, InterviewQuestionModel
@@ -128,21 +128,18 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 def require_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security)
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db=Depends(get_db),
 ):
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
-    return resolve_token_user(credentials)
+    return resolve_token_user(credentials, db)
 
 
-def resolve_token_user(credentials: HTTPAuthorizationCredentials):
+def resolve_token_user(credentials: HTTPAuthorizationCredentials, db):
     try:
         payload = decode_access_token(credentials.credentials)
-        db = SessionLocal()
-        try:
-            user = get_user_by_id(db, int(payload["sub"]))
-        finally:
-            db.close()
+        user = get_user_by_id(db, int(payload["sub"]))
         if not user:
             raise ValueError("用户不存在")
         return user
@@ -151,13 +148,14 @@ def resolve_token_user(credentials: HTTPAuthorizationCredentials):
 
 
 def get_optional_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security)
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db=Depends(get_db),
 ):
     if not credentials:
         return None
     if credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录凭证格式无效")
-    return resolve_token_user(credentials)
+    return resolve_token_user(credentials, db)
 
 
 class RegisterRequest(BaseModel):
@@ -262,24 +260,20 @@ def read_root():
 
 
 @app.get("/api/questions")
-def get_questions(role: str = "java"):
-    db = SessionLocal()
-    try:
-        questions = get_questions_by_role(db, role)
+def get_questions(role: str = "java", db=Depends(get_db)):
+    questions = get_questions_by_role(db, role)
 
-        if not questions and role not in SUPPORTED_ROLES:
-            questions = get_questions_by_role(db, "java")
+    if not questions and role not in SUPPORTED_ROLES:
+        questions = get_questions_by_role(db, "java")
 
-        return {
-            "role": role,
-            "questions": questions
-        }
-    finally:
-        db.close()
+    return {
+        "role": role,
+        "questions": questions
+    }
 
 
 @app.post("/api/interview/follow-up")
-def generate_followup(data: FollowUpRequest):
+def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
     fallback_map = {
         "project": "你在这个项目中具体负责哪些模块？遇到过什么技术难点？",
         "technical": "你能进一步解释一下这个技术点背后的原理或适用场景吗？",
@@ -291,7 +285,6 @@ def generate_followup(data: FollowUpRequest):
         "你可以结合具体项目经验，再进一步展开说明吗？"
     )
 
-    db = SessionLocal()
     try:
         question_meta = get_question_by_role_and_content(db, data.role, data.question)
         print("追问题库信息：", question_meta)
@@ -317,8 +310,6 @@ def generate_followup(data: FollowUpRequest):
 
     except Exception as e:
         print("追问生成失败，已回退到默认追问：", e)
-    finally:
-        db.close()
 
     return {
         "followUpQuestion": follow_up_question
@@ -524,146 +515,114 @@ def generate_report(data: InterviewSubmitRequest, current_user=Depends(get_optio
 
 
 @app.post("/api/history/add")
-def add_history(record: HistoryRecord, current_user=Depends(require_current_user)):
-    db = SessionLocal()
-    try:
-        record_data = record.model_dump()
-        record_data["userId"] = current_user.id
-        add_history_record(db, record_data)
-        return {
-            "message": "history saved successfully"
-        }
-    finally:
-        db.close()
+def add_history(
+    record: HistoryRecord,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
+    record_data = record.model_dump()
+    record_data["userId"] = current_user.id
+    add_history_record(db, record_data)
+    return {
+        "message": "history saved successfully"
+    }
 
 
 @app.get("/api/history/list")
-def get_history(current_user=Depends(require_current_user)):
-    db = SessionLocal()
-    try:
-        history = get_history_list(db, current_user.id)
-        return {
-            "history": history
-        }
-    finally:
-        db.close()
+def get_history(current_user=Depends(require_current_user), db=Depends(get_db)):
+    history = get_history_list(db, current_user.id)
+    return {
+        "history": history
+    }
 
 
 @app.delete("/api/history/clear")
-def clear_history(current_user=Depends(require_current_user)):
-    db = SessionLocal()
-    try:
-        clear_history_records(db, current_user.id)
-        return {
-            "message": "history cleared successfully"
-        }
-    finally:
-        db.close()
+def clear_history(current_user=Depends(require_current_user), db=Depends(get_db)):
+    clear_history_records(db, current_user.id)
+    return {
+        "message": "history cleared successfully"
+    }
 
 
 @app.get("/api/admin/questions")
-def admin_get_questions(role: Optional[str] = None):
-    db = SessionLocal()
-    try:
-        questions = get_all_questions(db, role)
-        return {
-            "questions": questions
-        }
-    finally:
-        db.close()
+def admin_get_questions(role: Optional[str] = None, db=Depends(get_db)):
+    questions = get_all_questions(db, role)
+    return {
+        "questions": questions
+    }
 
 
 @app.post("/api/admin/questions")
-def admin_add_question(data: QuestionCreateRequest):
-    db = SessionLocal()
-    try:
-        question = add_question(db, data.model_dump())
-        return {
-            "message": "question added successfully",
-            "question": question
-        }
-    finally:
-        db.close()
+def admin_add_question(data: QuestionCreateRequest, db=Depends(get_db)):
+    question = add_question(db, data.model_dump())
+    return {
+        "message": "question added successfully",
+        "question": question
+    }
 
 
 @app.put("/api/admin/questions/{question_id}")
-def admin_update_question(question_id: int, data: QuestionCreateRequest):
-    db = SessionLocal()
-    try:
-        question = update_question(db, question_id, data.model_dump())
-        if not question:
-            raise HTTPException(status_code=404, detail="Question not found")
+def admin_update_question(question_id: int, data: QuestionCreateRequest, db=Depends(get_db)):
+    question = update_question(db, question_id, data.model_dump())
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
 
-        return {
-            "message": "question updated successfully",
-            "question": question
-        }
-    finally:
-        db.close()
+    return {
+        "message": "question updated successfully",
+        "question": question
+    }
 
 
 @app.delete("/api/admin/questions/{question_id}")
-def admin_delete_question(question_id: int):
-    db = SessionLocal()
-    try:
-        success = delete_question(db, question_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Question not found")
+def admin_delete_question(question_id: int, db=Depends(get_db)):
+    success = delete_question(db, question_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Question not found")
 
-        return {
-            "message": "question deleted successfully"
-        }
-    finally:
-        db.close()
+    return {
+        "message": "question deleted successfully"
+    }
 
 
 @app.post("/api/auth/register")
-def register(data: RegisterRequest):
-    db = SessionLocal()
-    try:
-        existing_user = get_user_by_username(db, data.username)
-        if existing_user:
-            raise HTTPException(status_code=400, detail="用户名已存在")
+def register(data: RegisterRequest, db=Depends(get_db)):
+    existing_user = get_user_by_username(db, data.username)
+    if existing_user:
+        raise HTTPException(status_code=400, detail="用户名已存在")
 
-        user = create_user(
-            db,
-            username=data.username,
-            password_hash=hash_password(data.password)
-        )
+    user = create_user(
+        db,
+        username=data.username,
+        password_hash=hash_password(data.password)
+    )
 
-        return {
-            "message": "register success",
-            "user": {
-                "id": user.id,
-                "username": user.username
-            }
+    return {
+        "message": "register success",
+        "user": {
+            "id": user.id,
+            "username": user.username
         }
-    finally:
-        db.close()
+    }
 
 
 @app.post("/api/auth/login")
-def login(data: LoginRequest):
-    db = SessionLocal()
-    try:
-        user = get_user_by_username(db, data.username)
-        if not user or not verify_password(data.password, user.password_hash):
-            raise HTTPException(status_code=401, detail="用户名或密码错误")
+def login(data: LoginRequest, db=Depends(get_db)):
+    user = get_user_by_username(db, data.username)
+    if not user or not verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-        if is_legacy_password_hash(user.password_hash):
-            user.password_hash = hash_password(data.password)
-            db.commit()
+    if is_legacy_password_hash(user.password_hash):
+        user.password_hash = hash_password(data.password)
+        db.commit()
 
-        return {
-            "message": "login success",
-            "accessToken": create_access_token(user.id, user.username),
-            "user": {
-                "id": user.id,
-                "username": user.username
-            }
+    return {
+        "message": "login success",
+        "accessToken": create_access_token(user.id, user.username),
+        "user": {
+            "id": user.id,
+            "username": user.username
         }
-    finally:
-        db.close()
+    }
 
 
 @app.get("/api/auth/user/{user_id}")
@@ -674,300 +633,278 @@ def get_current_user(user_id: int, current_user=Depends(require_current_user)):
 
 
 @app.get("/api/profile/summary")
-def get_profile_summary(current_user=Depends(require_current_user)):
-    db = SessionLocal()
+def get_profile_summary(current_user=Depends(require_current_user), db=Depends(get_db)):
+    user = current_user
+
+    summary = get_user_history_summary(db, user.id)
+
+    ai_summary = ""
+    ai_suggestions = []
+
     try:
-        user = current_user
-
-        summary = get_user_history_summary(db, user.id)
-
-        ai_summary = ""
-        ai_suggestions = []
-
-        try:
-            llm_result = call_llm_for_profile_summary({
-                "username": user.username,
-                **summary
-            })
-            ai_summary = llm_result.get("aiSummary", "")
-            ai_suggestions = llm_result.get("aiSuggestions", [])
-        except Exception as e:
-            print("个人成长摘要 AI 生成失败，已回退到规则摘要：", e)
-
-        return {
-            "userId": user.id,
+        llm_result = call_llm_for_profile_summary({
             "username": user.username,
-            **summary,
-            "aiSummary": ai_summary,
-            "aiSuggestions": ai_suggestions
-        }
-    finally:
-        db.close()
+            **summary
+        })
+        ai_summary = llm_result.get("aiSummary", "")
+        ai_suggestions = llm_result.get("aiSuggestions", [])
+    except Exception as e:
+        print("个人成长摘要 AI 生成失败，已回退到规则摘要：", e)
+
+    return {
+        "userId": user.id,
+        "username": user.username,
+        **summary,
+        "aiSummary": ai_summary,
+        "aiSuggestions": ai_suggestions
+    }
 
 
 @app.get("/api/career/dashboard")
-def get_career_dashboard(current_user=Depends(require_current_user)):
+def get_career_dashboard(current_user=Depends(require_current_user), db=Depends(get_db)):
     user_id = current_user.id
-    db = SessionLocal()
-    try:
-        resume = get_resume_profile(db, user_id)
-        jobs = get_jobs_by_user(db, user_id)
-        enriched_jobs = [{**job, "match": score_job_match(resume, job)} for job in jobs]
-        status_counts = {status: 0 for status in ("saved", "applied", "interviewing", "offer", "rejected")}
-        for job in enriched_jobs:
-            status = job["applicationStatus"]
-            status_counts[status] = status_counts.get(status, 0) + 1
-        average_match = round(sum(job["match"]["score"] for job in enriched_jobs) / len(enriched_jobs)) if enriched_jobs else 0
-        progressed_count = status_counts["applied"] + status_counts["interviewing"] + status_counts["offer"] + status_counts["rejected"]
-        interview_count = status_counts["interviewing"] + status_counts["offer"]
-        funnel = {
-            "stages": [
-                {"key": "saved", "label": "已收藏", "count": status_counts["saved"]},
-                {"key": "applied", "label": "已投递", "count": status_counts["applied"]},
-                {"key": "interviewing", "label": "进入面试", "count": status_counts["interviewing"]},
-                {"key": "offer", "label": "已获 Offer", "count": status_counts["offer"]}
-            ],
-            "progressedCount": progressed_count,
-            "interviewRate": round(interview_count / progressed_count * 100) if progressed_count else 0,
-            "offerRate": round(status_counts["offer"] / progressed_count * 100) if progressed_count else 0
+    resume = get_resume_profile(db, user_id)
+    jobs = get_jobs_by_user(db, user_id)
+    enriched_jobs = [{**job, "match": score_job_match(resume, job)} for job in jobs]
+    status_counts = {status: 0 for status in ("saved", "applied", "interviewing", "offer", "rejected")}
+    for job in enriched_jobs:
+        status = job["applicationStatus"]
+        status_counts[status] = status_counts.get(status, 0) + 1
+    average_match = round(sum(job["match"]["score"] for job in enriched_jobs) / len(enriched_jobs)) if enriched_jobs else 0
+    progressed_count = status_counts["applied"] + status_counts["interviewing"] + status_counts["offer"] + status_counts["rejected"]
+    interview_count = status_counts["interviewing"] + status_counts["offer"]
+    funnel = {
+        "stages": [
+            {"key": "saved", "label": "已收藏", "count": status_counts["saved"]},
+            {"key": "applied", "label": "已投递", "count": status_counts["applied"]},
+            {"key": "interviewing", "label": "进入面试", "count": status_counts["interviewing"]},
+            {"key": "offer", "label": "已获 Offer", "count": status_counts["offer"]}
+        ],
+        "progressedCount": progressed_count,
+        "interviewRate": round(interview_count / progressed_count * 100) if progressed_count else 0,
+        "offerRate": round(status_counts["offer"] / progressed_count * 100) if progressed_count else 0
+    }
+    return {
+        "resume": resume,
+        "jobs": enriched_jobs,
+        "resumeVersions": get_resume_versions(db, user_id),
+        "followUps": get_pending_follow_ups(db, user_id),
+        "summary": {
+            "jobCount": len(enriched_jobs),
+            "averageMatch": average_match,
+            "statusCounts": status_counts,
+            "funnel": funnel
         }
-        return {
-            "resume": resume,
-            "jobs": enriched_jobs,
-            "resumeVersions": get_resume_versions(db, user_id),
-            "followUps": get_pending_follow_ups(db, user_id),
-            "summary": {
-                "jobCount": len(enriched_jobs),
-                "averageMatch": average_match,
-                "statusCounts": status_counts,
-                "funnel": funnel
-            }
-        }
-    finally:
-        db.close()
+    }
 
 
 @app.put("/api/career/resume")
-def upsert_resume(data: ResumeProfileRequest, current_user=Depends(require_current_user)):
+def upsert_resume(data: ResumeProfileRequest, current_user=Depends(require_current_user), db=Depends(get_db)):
     if not data.resumeText.strip():
         raise HTTPException(status_code=400, detail="简历内容不能为空")
-    db = SessionLocal()
-    try:
-        return {"resume": save_resume_profile(db, current_user.id, data.resumeText.strip(), data.targetRole.strip())}
-    finally:
-        db.close()
+    return {"resume": save_resume_profile(db, current_user.id, data.resumeText.strip(), data.targetRole.strip())}
 
 
 @app.post("/api/career/jobs")
-def add_career_job(data: JobCreateRequest, current_user=Depends(require_current_user)):
+def add_career_job(data: JobCreateRequest, current_user=Depends(require_current_user), db=Depends(get_db)):
     if not data.title.strip() or not data.company.strip():
         raise HTTPException(status_code=400, detail="职位名称和公司名称不能为空")
-    db = SessionLocal()
-    try:
-        job = create_job(db, current_user.id, data.model_dump())
-        resume = get_resume_profile(db, current_user.id)
-        return {"job": {**job, "match": score_job_match(resume, job)}}
-    finally:
-        db.close()
+    job = create_job(db, current_user.id, data.model_dump())
+    resume = get_resume_profile(db, current_user.id)
+    return {"job": {**job, "match": score_job_match(resume, job)}}
 
 
 @app.patch("/api/career/jobs/{job_id}/status")
-def change_career_job_status(job_id: int, data: JobStatusRequest, current_user=Depends(require_current_user)):
+def change_career_job_status(
+    job_id: int,
+    data: JobStatusRequest,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
     allowed_statuses = {"saved", "applied", "interviewing", "offer", "rejected"}
     if data.applicationStatus not in allowed_statuses:
         raise HTTPException(status_code=400, detail="不支持的职位状态")
-    db = SessionLocal()
-    try:
-        job = update_job_status(db, current_user.id, job_id, data.applicationStatus)
-        if not job:
-            raise HTTPException(status_code=404, detail="职位不存在")
-        resume = get_resume_profile(db, current_user.id)
-        return {"job": {**job, "match": score_job_match(resume, job)}}
-    finally:
-        db.close()
+    job = update_job_status(db, current_user.id, job_id, data.applicationStatus)
+    if not job:
+        raise HTTPException(status_code=404, detail="职位不存在")
+    resume = get_resume_profile(db, current_user.id)
+    return {"job": {**job, "match": score_job_match(resume, job)}}
 
 
 @app.put("/api/career/jobs/{job_id}")
-def update_career_job(job_id: int, data: JobCreateRequest, current_user=Depends(require_current_user)):
+def update_career_job(
+    job_id: int,
+    data: JobCreateRequest,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
     if not data.title.strip() or not data.company.strip():
         raise HTTPException(status_code=400, detail="职位名称和公司名称不能为空")
-    db = SessionLocal()
-    try:
-        job = update_job(db, current_user.id, job_id, data.model_dump())
-        if not job:
-            raise HTTPException(status_code=404, detail="职位不存在")
-        resume = get_resume_profile(db, current_user.id)
-        return {"job": {**job, "match": score_job_match(resume, job)}}
-    finally:
-        db.close()
+    job = update_job(db, current_user.id, job_id, data.model_dump())
+    if not job:
+        raise HTTPException(status_code=404, detail="职位不存在")
+    resume = get_resume_profile(db, current_user.id)
+    return {"job": {**job, "match": score_job_match(resume, job)}}
 
 
 @app.delete("/api/career/jobs/{job_id}")
-def delete_career_job(job_id: int, current_user=Depends(require_current_user)):
-    db = SessionLocal()
-    try:
-        if not delete_job(db, current_user.id, job_id):
-            raise HTTPException(status_code=404, detail="职位不存在")
-        return {"message": "职位已删除"}
-    finally:
-        db.close()
+def delete_career_job(job_id: int, current_user=Depends(require_current_user), db=Depends(get_db)):
+    if not delete_job(db, current_user.id, job_id):
+        raise HTTPException(status_code=404, detail="职位不存在")
+    return {"message": "职位已删除"}
 
 
 @app.post("/api/career/jobs/{job_id}/follow-ups")
-def add_job_follow_up(job_id: int, data: FollowUpCreateRequest, current_user=Depends(require_current_user)):
+def add_job_follow_up(
+    job_id: int,
+    data: FollowUpCreateRequest,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
     if not data.dueAt.strip() or not data.note.strip():
         raise HTTPException(status_code=400, detail="请填写跟进时间和跟进事项")
-    db = SessionLocal()
-    try:
-        if not get_job_by_id(db, current_user.id, job_id):
-            raise HTTPException(status_code=404, detail="职位不存在")
-        return {"followUp": create_follow_up(db, current_user.id, job_id, data.dueAt.strip(), data.note.strip())}
-    finally:
-        db.close()
+    if not get_job_by_id(db, current_user.id, job_id):
+        raise HTTPException(status_code=404, detail="职位不存在")
+    return {"followUp": create_follow_up(db, current_user.id, job_id, data.dueAt.strip(), data.note.strip())}
 
 
 @app.patch("/api/career/follow-ups/{follow_up_id}/complete")
-def finish_job_follow_up(follow_up_id: int, current_user=Depends(require_current_user)):
-    db = SessionLocal()
-    try:
-        follow_up = complete_follow_up(db, current_user.id, follow_up_id)
-        if not follow_up:
-            raise HTTPException(status_code=404, detail="跟进事项不存在")
-        return {"followUp": follow_up}
-    finally:
-        db.close()
+def finish_job_follow_up(follow_up_id: int, current_user=Depends(require_current_user), db=Depends(get_db)):
+    follow_up = complete_follow_up(db, current_user.id, follow_up_id)
+    if not follow_up:
+        raise HTTPException(status_code=404, detail="跟进事项不存在")
+    return {"followUp": follow_up}
 
 
 @app.post("/api/career/jobs/{job_id}/prepare")
-def prepare_for_career_job(job_id: int, data: JobStatusRequest, current_user=Depends(require_current_user)):
-    db = SessionLocal()
+def prepare_for_career_job(
+    job_id: int,
+    data: JobStatusRequest,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
+    resume = get_resume_profile(db, current_user.id)
+    if not resume:
+        raise HTTPException(status_code=400, detail="请先保存简历，再生成职位准备建议")
+    job = get_job_by_id(db, current_user.id, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="职位不存在")
+
+    match = score_job_match(resume, job)
+    preparation = build_job_preparation(resume, job, match)
     try:
-        resume = get_resume_profile(db, current_user.id)
-        if not resume:
-            raise HTTPException(status_code=400, detail="请先保存简历，再生成职位准备建议")
-        job = get_job_by_id(db, current_user.id, job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="职位不存在")
+        llm_result = call_llm_for_job_preparation({
+            "resumeText": resume["resumeText"],
+            "jobTitle": job["title"],
+            "company": job["company"],
+            "jobRequirements": job["requiredSkills"],
+            "jobDescription": job["description"],
+            "match": match
+        })
+        if llm_result.get("summary"):
+            preparation = llm_result
+    except Exception as error:
+        print("职位准备建议 AI 生成失败，已回退到规则建议：", error)
 
-        match = score_job_match(resume, job)
-        preparation = build_job_preparation(resume, job, match)
-        try:
-            llm_result = call_llm_for_job_preparation({
-                "resumeText": resume["resumeText"],
-                "jobTitle": job["title"],
-                "company": job["company"],
-                "jobRequirements": job["requiredSkills"],
-                "jobDescription": job["description"],
-                "match": match
-            })
-            if llm_result.get("summary"):
-                preparation = llm_result
-        except Exception as error:
-            print("职位准备建议 AI 生成失败，已回退到规则建议：", error)
-
-        return {"jobId": job_id, "preparation": preparation}
-    finally:
-        db.close()
+    return {"jobId": job_id, "preparation": preparation}
 
 
 @app.post("/api/career/jobs/{job_id}/resume-draft")
-def generate_tailored_resume_draft(job_id: int, data: CareerUserRequest, current_user=Depends(require_current_user)):
-    db = SessionLocal()
+def generate_tailored_resume_draft(
+    job_id: int,
+    data: CareerUserRequest,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
+    resume = get_resume_profile(db, current_user.id)
+    if not resume:
+        raise HTTPException(status_code=400, detail="请先保存原始简历，再生成定制草稿")
+    job = get_job_by_id(db, current_user.id, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="职位不存在")
+    match = score_job_match(resume, job)
+    draft = {
+        "source": "rule",
+        "title": f"{job['company']} · {job['title']} · 简历草稿",
+        "content": resume["resumeText"]
+    }
     try:
-        resume = get_resume_profile(db, current_user.id)
-        if not resume:
-            raise HTTPException(status_code=400, detail="请先保存原始简历，再生成定制草稿")
-        job = get_job_by_id(db, current_user.id, job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="职位不存在")
-        match = score_job_match(resume, job)
-        draft = {
-            "source": "rule",
-            "title": f"{job['company']} · {job['title']} · 简历草稿",
-            "content": resume["resumeText"]
-        }
-        try:
-            llm_result = call_llm_for_tailored_resume({
-                "resumeText": resume["resumeText"],
-                "jobTitle": job["title"],
-                "company": job["company"],
-                "jobRequirements": job["requiredSkills"],
-                "jobDescription": job["description"],
-                "match": match
-            })
-            draft = llm_result
-        except Exception as error:
-            print("定制简历草稿 AI 生成失败，已回退到原始简历：", error)
-        return {"jobId": job_id, "draft": draft}
-    finally:
-        db.close()
+        llm_result = call_llm_for_tailored_resume({
+            "resumeText": resume["resumeText"],
+            "jobTitle": job["title"],
+            "company": job["company"],
+            "jobRequirements": job["requiredSkills"],
+            "jobDescription": job["description"],
+            "match": match
+        })
+        draft = llm_result
+    except Exception as error:
+        print("定制简历草稿 AI 生成失败，已回退到原始简历：", error)
+    return {"jobId": job_id, "draft": draft}
 
 
 @app.post("/api/career/jobs/{job_id}/interview-questions")
-def generate_job_interview_questions(job_id: int, data: CareerUserRequest, current_user=Depends(require_current_user)):
-    db = SessionLocal()
+def generate_job_interview_questions(
+    job_id: int,
+    data: CareerUserRequest,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
+    resume = get_resume_profile(db, current_user.id)
+    if not resume:
+        raise HTTPException(status_code=400, detail="请先保存简历，再生成 JD 专项面试题")
+    job = get_job_by_id(db, current_user.id, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="职位不存在")
+    match = score_job_match(resume, job)
+    questions = build_job_interview_questions(job, match)
+    source = "rule"
     try:
-        resume = get_resume_profile(db, current_user.id)
-        if not resume:
-            raise HTTPException(status_code=400, detail="请先保存简历，再生成 JD 专项面试题")
-        job = get_job_by_id(db, current_user.id, job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="职位不存在")
-        match = score_job_match(resume, job)
-        questions = build_job_interview_questions(job, match)
-        source = "rule"
-        try:
-            llm_questions = call_llm_for_job_interview_questions({
-                "resumeText": resume["resumeText"],
-                "jobTitle": job["title"],
-                "company": job["company"],
-                "jobRequirements": job["requiredSkills"],
-                "jobDescription": job["description"],
-                "match": match
-            })
-            if llm_questions:
-                questions = llm_questions
-                source = "llm"
-        except Exception as error:
-            print("JD 专项面试题 AI 生成失败，已回退到规则题目：", error)
-        return {"jobId": job_id, "source": source, "questions": questions}
-    finally:
-        db.close()
+        llm_questions = call_llm_for_job_interview_questions({
+            "resumeText": resume["resumeText"],
+            "jobTitle": job["title"],
+            "company": job["company"],
+            "jobRequirements": job["requiredSkills"],
+            "jobDescription": job["description"],
+            "match": match
+        })
+        if llm_questions:
+            questions = llm_questions
+            source = "llm"
+    except Exception as error:
+        print("JD 专项面试题 AI 生成失败，已回退到规则题目：", error)
+    return {"jobId": job_id, "source": source, "questions": questions}
 
 
 @app.post("/api/career/resume-versions")
-def save_resume_version(data: ResumeVersionCreateRequest, current_user=Depends(require_current_user)):
+def save_resume_version(
+    data: ResumeVersionCreateRequest,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
     if not data.title.strip() or not data.content.strip():
         raise HTTPException(status_code=400, detail="版本名称和简历内容不能为空")
-    db = SessionLocal()
-    try:
-        if data.jobId and not get_job_by_id(db, current_user.id, data.jobId):
-            raise HTTPException(status_code=404, detail="关联职位不存在")
-        version = create_resume_version(db, current_user.id, data.model_dump())
-        return {"version": version}
-    finally:
-        db.close()
+    if data.jobId and not get_job_by_id(db, current_user.id, data.jobId):
+        raise HTTPException(status_code=404, detail="关联职位不存在")
+    version = create_resume_version(db, current_user.id, data.model_dump())
+    return {"version": version}
 
 
 @app.get("/api/career/action-plan")
-def get_career_action_plan(current_user=Depends(require_current_user)):
+def get_career_action_plan(current_user=Depends(require_current_user), db=Depends(get_db)):
     user_id = current_user.id
-    db = SessionLocal()
+    resume = get_resume_profile(db, user_id)
+    jobs = get_jobs_by_user(db, user_id)
+    enriched_jobs = [{**job, "match": score_job_match(resume, job)} for job in jobs]
+    plan = build_daily_action_plan(resume, enriched_jobs)
     try:
-        resume = get_resume_profile(db, user_id)
-        jobs = get_jobs_by_user(db, user_id)
-        enriched_jobs = [{**job, "match": score_job_match(resume, job)} for job in jobs]
-        plan = build_daily_action_plan(resume, enriched_jobs)
-        try:
-            llm_result = call_llm_for_daily_action_plan({
-                "resume": resume,
-                "jobs": enriched_jobs,
-                "rulePlan": plan
-            })
-            if llm_result.get("summary"):
-                plan = llm_result
-        except Exception as error:
-            print("每日行动计划 AI 生成失败，已回退到规则计划：", error)
-        return {"plan": plan}
-    finally:
-        db.close()
+        llm_result = call_llm_for_daily_action_plan({
+            "resume": resume,
+            "jobs": enriched_jobs,
+            "rulePlan": plan
+        })
+        if llm_result.get("summary"):
+            plan = llm_result
+    except Exception as error:
+        print("每日行动计划 AI 生成失败，已回退到规则计划：", error)
+    return {"plan": plan}
