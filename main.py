@@ -31,6 +31,7 @@ from llm_client import (
     call_llm_for_tailored_resume,
     call_llm_for_job_interview_questions
 )
+from llm_payloads import build_job_context, build_question_context
 from db import Base, engine, get_db
 from config import AUTO_CREATE_TABLES, validate_runtime_config
 from observability import RequestLoggingMiddleware, configure_logging, get_request_id
@@ -212,14 +213,7 @@ def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
             "question": data.question,
             "type": data.type,
             "answer": data.answer,
-            "difficulty": question_meta.get("difficulty") if question_meta else "",
-            "tags": question_meta.get("tags") if question_meta else "",
-            "keyPoints": question_meta.get("keyPoints") if question_meta else "",
-            "scoringFocus": question_meta.get("scoringFocus") if question_meta else "",
-            "referenceAnswerBasic": question_meta.get("referenceAnswerBasic") if question_meta else "",
-            "referenceAnswerGood": question_meta.get("referenceAnswerGood") if question_meta else "",
-            "followupFocus": question_meta.get("followupFocus") if question_meta else "",
-            "followupExamples": question_meta.get("followupExamples") if question_meta else ""
+            **build_question_context(question_meta),
         })
 
         if llm_question:
@@ -258,14 +252,7 @@ def generate_report(
             "answer": item.answer,
             "followUpQuestion": item.followUpQuestion,
             "followUpAnswer": item.followUpAnswer,
-            "difficulty": question_meta.get("difficulty") if question_meta else "",
-            "tags": question_meta.get("tags") if question_meta else "",
-            "keyPoints": question_meta.get("keyPoints") if question_meta else "",
-            "scoringFocus": question_meta.get("scoringFocus") if question_meta else "",
-            "referenceAnswerBasic": question_meta.get("referenceAnswerBasic") if question_meta else "",
-            "referenceAnswerGood": question_meta.get("referenceAnswerGood") if question_meta else "",
-            "followupFocus": question_meta.get("followupFocus") if question_meta else "",
-            "followupExamples": question_meta.get("followupExamples") if question_meta else ""
+            **build_question_context(question_meta),
         })
 
     legacy_tech_score = calculate_tech_score(data.role, answer_texts)
@@ -709,14 +696,7 @@ def prepare_for_career_job(
     match = score_job_match(resume, job)
     preparation = build_job_preparation(resume, job, match)
     try:
-        llm_result = call_llm_for_job_preparation({
-            "resumeText": resume["resumeText"],
-            "jobTitle": job["title"],
-            "company": job["company"],
-            "jobRequirements": job["requiredSkills"],
-            "jobDescription": job["description"],
-            "match": match
-        })
+        llm_result = call_llm_for_job_preparation(build_job_context(resume, job, match))
         if llm_result.get("summary"):
             preparation = llm_result
     except Exception:
@@ -744,14 +724,7 @@ def generate_tailored_resume_draft(
         "content": resume["resumeText"]
     }
     try:
-        llm_result = call_llm_for_tailored_resume({
-            "resumeText": resume["resumeText"],
-            "jobTitle": job["title"],
-            "company": job["company"],
-            "jobRequirements": job["requiredSkills"],
-            "jobDescription": job["description"],
-            "match": match
-        })
+        llm_result = call_llm_for_tailored_resume(build_job_context(resume, job, match))
         draft = llm_result
     except Exception:
         logger.warning("定制简历草稿 AI 生成失败，已回退到原始简历", exc_info=True)
@@ -774,14 +747,7 @@ def generate_job_interview_questions(
     questions = build_job_interview_questions(job, match)
     source = "rule"
     try:
-        llm_questions = call_llm_for_job_interview_questions({
-            "resumeText": resume["resumeText"],
-            "jobTitle": job["title"],
-            "company": job["company"],
-            "jobRequirements": job["requiredSkills"],
-            "jobDescription": job["description"],
-            "match": match
-        })
+        llm_questions = call_llm_for_job_interview_questions(build_job_context(resume, job, match))
         if llm_questions:
             questions = llm_questions
             source = "llm"
