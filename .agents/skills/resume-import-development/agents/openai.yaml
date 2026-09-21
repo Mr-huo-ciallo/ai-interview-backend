@@ -1,0 +1,4 @@
+interface:
+  display_name: "简历导入开发"
+  short_description: "Maintain resume and job import workflows"
+  default_prompt: "Use $resume-import-development to extend or diagnose the resume import workflow."

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from db import get_db
@@ -16,6 +18,7 @@ from services.resume_import import MAX_PDF_BYTES, LocalTextPdfResumeParser, Resu
 
 
 router = APIRouter(prefix="/api/career", tags=["career"])
+logger = logging.getLogger(__name__)
 
 
 def get_career_service(current_user=Depends(require_current_user), db=Depends(get_db)):
@@ -46,9 +49,16 @@ async def import_resume_pdf(
             targetRole.strip(),
         )
     except ResumeImportError as exc:
+        logger.warning("resume_pdf_import_failed reason=%s", exc)
         raise HTTPException(status_code=400, detail=str(exc))
     finally:
         await file.close()
+    logger.info(
+        "resume_pdf_import_completed method=%s pages=%s warnings=%s",
+        result.extractionMethod,
+        result.pageCount,
+        len(result.warnings),
+    )
     return {"extraction": result.model_dump()}
 
 
