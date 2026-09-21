@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from db import get_db
 from dependencies import require_current_user
 from schemas import (
     FollowUpCreateRequest,
     JobCreateRequest,
+    JobImportConfirmRequest,
+    JobImportRequest,
     JobStatusRequest,
     ResumeProfileRequest,
     ResumeVersionCreateRequest,
 )
 from services.career import CareerService
+from services.resume_import import MAX_PDF_BYTES, LocalTextPdfResumeParser, ResumeImportError, ResumeImportService
 
 
 router = APIRouter(prefix="/api/career", tags=["career"])
@@ -29,9 +32,45 @@ def upsert_resume(data: ResumeProfileRequest, service: CareerService = Depends(g
     return {"resume": service.save_resume(data.resumeText, data.targetRole)}
 
 
+@router.post("/resume/import")
+async def import_resume_pdf(
+    file: UploadFile = File(...),
+    targetRole: str = Form(""),
+    _current_user=Depends(require_current_user),
+):
+    content = await file.read(MAX_PDF_BYTES + 1)
+    try:
+        result = ResumeImportService(LocalTextPdfResumeParser()).import_pdf(
+            content,
+            file.filename or "resume.pdf",
+            targetRole.strip(),
+        )
+    except ResumeImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        await file.close()
+    return {"extraction": result.model_dump()}
+
+
 @router.post("/jobs")
 def add_career_job(data: JobCreateRequest, service: CareerService = Depends(get_career_service)):
     return {"job": service.add_job(data.model_dump())}
+
+
+@router.post("/jobs/import/preview")
+def preview_career_jobs(
+    data: JobImportRequest,
+    service: CareerService = Depends(get_career_service),
+):
+    return service.preview_job_import(data.jobs)
+
+
+@router.post("/jobs/import/confirm")
+def confirm_career_jobs(
+    data: JobImportConfirmRequest,
+    service: CareerService = Depends(get_career_service),
+):
+    return service.confirm_job_import([job.model_dump() for job in data.jobs])
 
 
 @router.patch("/jobs/{job_id}/status")

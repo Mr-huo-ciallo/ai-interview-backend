@@ -1,6 +1,6 @@
 from typing import Any, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
@@ -93,3 +93,57 @@ class ResumeVersionCreateRequest(BaseModel):
 class FollowUpCreateRequest(BaseModel):
     dueAt: str
     note: str
+
+
+class ResumeExperience(BaseModel):
+    company: str = ""
+    title: str = ""
+    startDate: str = ""
+    endDate: str = ""
+    highlights: list[str] = Field(default_factory=list)
+
+
+class ResumeEducation(BaseModel):
+    school: str = ""
+    degree: str = ""
+    major: str = ""
+    startDate: str = ""
+    endDate: str = ""
+
+
+class ResumeProject(BaseModel):
+    name: str = ""
+    role: str = ""
+    technologies: list[str] = Field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
+
+
+class ResumeStructuredData(BaseModel):
+    fullName: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    summary: str = ""
+    targetRole: str = ""
+    skills: list[str] = Field(default_factory=list)
+    education: list[ResumeEducation] = Field(default_factory=list)
+    experience: list[ResumeExperience] = Field(default_factory=list)
+    projects: list[ResumeProject] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+
+
+class ResumeExtractionResult(BaseModel):
+    rawText: str
+    structured: ResumeStructuredData
+    warnings: list[str] = Field(default_factory=list)
+    extractionMethod: str
+    pageCount: int
+    confidence: float
+
+
+class JobImportRequest(BaseModel):
+    jobs: list[dict[str, Any]]
+
+
+class JobImportConfirmRequest(BaseModel):
+    jobs: list[JobCreateRequest]

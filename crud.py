@@ -90,8 +90,8 @@ def serialize_job(item: JobPostModel):
     }
 
 
-def create_job(db: Session, user_id: int, data: dict):
-    job = JobPostModel(
+def _build_job(user_id: int, data: dict):
+    return JobPostModel(
         user_id=user_id,
         title=data["title"].strip(),
         company=data["company"].strip(),
@@ -101,10 +101,23 @@ def create_job(db: Session, user_id: int, data: dict):
         description=data.get("description", "").strip(),
         source_url=data.get("sourceUrl", "").strip(),
     )
+
+
+def create_job(db: Session, user_id: int, data: dict):
+    job = _build_job(user_id, data)
     db.add(job)
     db.commit()
     db.refresh(job)
     return serialize_job(job)
+
+
+def create_jobs(db: Session, user_id: int, items: list[dict]):
+    jobs = [_build_job(user_id, data) for data in items]
+    db.add_all(jobs)
+    db.commit()
+    for job in jobs:
+        db.refresh(job)
+    return [serialize_job(job) for job in jobs]
 
 
 def get_jobs_by_user(db: Session, user_id: int):

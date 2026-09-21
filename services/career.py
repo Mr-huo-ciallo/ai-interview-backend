@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from crud import (
     build_daily_action_plan,
@@ -9,6 +10,7 @@ from crud import (
     complete_follow_up,
     create_follow_up,
     create_job,
+    create_jobs,
     create_resume_version,
     delete_job,
     get_job_by_id,
@@ -28,6 +30,7 @@ from llm_client import (
     call_llm_for_tailored_resume,
 )
 from llm_payloads import build_job_context
+from schemas import JobCreateRequest
 
 
 logger = logging.getLogger(__name__)
@@ -95,6 +98,64 @@ class CareerService:
         self._validate_job(data)
         job = create_job(self.db, self.user_id, data)
         return {**job, "match": score_job_match(self._resume(), job)}
+
+    def preview_job_import(self, items: list[dict]):
+        if not items:
+            raise HTTPException(status_code=400, detail="JSON 中没有可导入的职位")
+        if len(items) > 100:
+            raise HTTPException(status_code=400, detail="单次最多导入 100 个职位")
+
+        existing_keys = {self._job_key(job) for job in get_jobs_by_user(self.db, self.user_id)}
+        file_keys = set()
+        preview = []
+        for index, raw_item in enumerate(items):
+            errors = []
+            normalized = None
+            if not isinstance(raw_item, dict):
+                errors.append("职位必须是 JSON 对象")
+            else:
+                try:
+                    normalized = JobCreateRequest.model_validate(raw_item).model_dump()
+                    self._validate_job(normalized)
+                except ValidationError as exc:
+                    errors.extend(error["msg"] for error in exc.errors())
+                except HTTPException as exc:
+                    errors.append(str(exc.detail))
+
+            duplicate = False
+            if normalized:
+                key = self._job_key(normalized)
+                duplicate = key in existing_keys or key in file_keys
+                file_keys.add(key)
+            preview.append({
+                "index": index,
+                "valid": not errors,
+                "duplicate": duplicate,
+                "errors": errors,
+                "job": normalized or raw_item,
+            })
+        return {
+            "items": preview,
+            "summary": {
+                "total": len(preview),
+                "valid": sum(1 for item in preview if item["valid"] and not item["duplicate"]),
+                "duplicate": sum(1 for item in preview if item["duplicate"]),
+                "invalid": sum(1 for item in preview if not item["valid"]),
+            },
+        }
+
+    def confirm_job_import(self, items: list[dict]):
+        preview = self.preview_job_import(items)
+        importable = [item["job"] for item in preview["items"] if item["valid"] and not item["duplicate"]]
+        if not importable:
+            raise HTTPException(status_code=400, detail="没有可导入的职位")
+        created = create_jobs(self.db, self.user_id, importable)
+        resume = self._resume()
+        return {
+            "jobs": [{**job, "match": score_job_match(resume, job)} for job in created],
+            "importedCount": len(created),
+            "skippedCount": len(items) - len(created),
+        }
 
     def change_job_status(self, job_id: int, application_status: str):
         if application_status not in ALLOWED_JOB_STATUSES:
@@ -204,3 +265,15 @@ class CareerService:
     def _validate_job(data: dict):
         if not data["title"].strip() or not data["company"].strip():
             raise HTTPException(status_code=400, detail="职位名称和公司名称不能为空")
+
+    @staticmethod
+    def _job_key(data: dict):
+        source_url = str(data.get("sourceUrl", "")).strip().casefold()
+        if source_url:
+            return ("url", source_url)
+        return (
+            "fields",
+            str(data.get("company", "")).strip().casefold(),
+            str(data.get("title", "")).strip().casefold(),
+            str(data.get("location", "")).strip().casefold(),
+        )
