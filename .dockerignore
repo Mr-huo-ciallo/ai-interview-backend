@@ -4,5 +4,13 @@
 __pycache__/
 *.py[cod]
 .git/
+.agents/
 data/
+deploy/
+docs/
+scripts/
 tests/
+.gitignore
+compose*.yaml
+Dockerfile
+pytest.ini

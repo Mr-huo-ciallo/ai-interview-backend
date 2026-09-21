@@ -26,22 +26,11 @@ cd ai-interview-backend
 
 `auto` 模式会优先检查 `ai-interview-backend/.venv`，如果该环境缺少依赖，则回退到项目根目录 `.venv`。
 
-## 生产部署建议
+## 生产部署
 
-线上服务器建议只保留一个后端专用虚拟环境，避免多环境依赖不一致：
+生产服务器统一使用 Docker Compose，不在宿主机安装项目专用 Python、Node、MySQL 或虚拟环境。部署目录、环境变量、迁移、健康检查、备份与更新命令以 [Docker Compose 部署](deploy/docker-compose.md) 为准。
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-Linux 服务器可使用：
-
-```bash
-python3 -m venv .venv
-./.venv/bin/python -m pip install -r requirements.txt
-./.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
-```
+本文件其余虚拟环境命令仅用于 Windows 本地开发。
 
 ## 环境变量
 
