@@ -1,13 +1,16 @@
-from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime
 from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
+
 from db import Base
 
 
 class UserModel(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("username", name="uq_users_username"),)
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    username = Column(String(50), nullable=False, unique=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), nullable=False)
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.now)
 
@@ -15,7 +18,7 @@ class UserModel(Base):
 class HistoryRecordModel(Base):
     __tablename__ = "history_records"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=True, index=True)
     role = Column(String(50), nullable=False)
     role_name = Column(String(100), nullable=False)
@@ -31,13 +34,13 @@ class HistoryRecordModel(Base):
 class InterviewQuestionModel(Base):
     __tablename__ = "interview_questions"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     role = Column(String(50), nullable=False)
     type = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)
-    sort_order = Column(Integer, nullable=False, default=1)
+    sort_order = Column(Integer, nullable=False, default=1, server_default="1")
 
-    difficulty = Column(String(20), nullable=False, default="medium")
+    difficulty = Column(String(20), nullable=False, default="medium", server_default="medium")
     tags = Column(Text, nullable=True)
     key_points = Column(Text, nullable=True)
     scoring_focus = Column(Text, nullable=True)
@@ -49,9 +52,10 @@ class InterviewQuestionModel(Base):
 
 class ResumeProfileModel(Base):
     __tablename__ = "resume_profiles"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_resume_profiles_user_id"),)
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False, unique=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
     resume_text = Column(Text, nullable=False)
     skills_json = Column(Text, nullable=False, default="[]")
     target_role = Column(String(100), nullable=True)
@@ -62,7 +66,7 @@ class ResumeProfileModel(Base):
 class JobPostModel(Base):
     __tablename__ = "job_posts"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
     title = Column(String(150), nullable=False)
     company = Column(String(150), nullable=False)
@@ -71,7 +75,7 @@ class JobPostModel(Base):
     required_skills = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     source_url = Column(String(500), nullable=True)
-    application_status = Column(String(30), nullable=False, default="saved")
+    application_status = Column(String(30), nullable=False, default="saved", server_default="saved")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -79,22 +83,22 @@ class JobPostModel(Base):
 class ResumeVersionModel(Base):
     __tablename__ = "resume_versions"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
     job_id = Column(Integer, nullable=True, index=True)
     title = Column(String(200), nullable=False)
     content = Column(Text, nullable=False)
-    source = Column(String(30), nullable=False, default="manual")
+    source = Column(String(30), nullable=False, default="manual", server_default="manual")
     created_at = Column(DateTime, default=datetime.now)
 
 
 class JobFollowUpModel(Base):
     __tablename__ = "job_follow_ups"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
     job_id = Column(Integer, nullable=False, index=True)
     due_at = Column(String(40), nullable=False, index=True)
     note = Column(Text, nullable=False)
-    completed = Column(Boolean, nullable=False, default=False)
+    completed = Column(Boolean, nullable=False, default=False, server_default="0")
     created_at = Column(DateTime, default=datetime.now)

@@ -3,6 +3,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 
 
@@ -12,7 +14,9 @@ if TEST_DB_PATH.exists():
 
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
 os.environ["AUTH_SECRET"] = "test-only-secret"
-os.environ["AUTO_CREATE_TABLES"] = "true"
+
+ALEMBIC_CONFIG = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+command.upgrade(ALEMBIC_CONFIG, "head")
 
 import main  # noqa: E402
 from db import SessionLocal  # noqa: E402

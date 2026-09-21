@@ -22,9 +22,8 @@ def upgrade():
         sa.Column("username", sa.String(length=50), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.UniqueConstraint("username"),
+        sa.UniqueConstraint("username", name="uq_users_username"),
     )
-    op.create_index("ix_users_username", "users", ["username"])
 
     op.create_table(
         "history_records",
@@ -64,13 +63,12 @@ def upgrade():
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("resume_text", sa.Text(), nullable=False),
-        sa.Column("skills_json", sa.Text(), nullable=False, server_default="[]"),
+        sa.Column("skills_json", sa.Text(), nullable=False),
         sa.Column("target_role", sa.String(length=100), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
-        sa.UniqueConstraint("user_id"),
+        sa.UniqueConstraint("user_id", name="uq_resume_profiles_user_id"),
     )
-    op.create_index("ix_resume_profiles_user_id", "resume_profiles", ["user_id"])
 
     op.create_table(
         "job_posts",
@@ -127,10 +125,8 @@ def downgrade():
     op.drop_table("resume_versions")
     op.drop_index("ix_job_posts_user_id", table_name="job_posts")
     op.drop_table("job_posts")
-    op.drop_index("ix_resume_profiles_user_id", table_name="resume_profiles")
     op.drop_table("resume_profiles")
     op.drop_table("interview_questions")
     op.drop_index("ix_history_records_user_id", table_name="history_records")
     op.drop_table("history_records")
-    op.drop_index("ix_users_username", table_name="users")
     op.drop_table("users")

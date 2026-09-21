@@ -30,8 +30,8 @@ from llm_client import (
     call_llm_for_job_interview_questions
 )
 from llm_payloads import build_job_context, build_question_context
-from db import Base, engine, get_db
-from config import AUTO_CREATE_TABLES, validate_runtime_config
+from db import get_db
+from config import validate_runtime_config
 from observability import RequestLoggingMiddleware, configure_logging, get_request_id
 from crud import (
     create_user,
@@ -93,8 +93,6 @@ security = HTTPBearer(auto_error=False)
 
 configure_logging()
 validate_runtime_config()
-if AUTO_CREATE_TABLES:
-    Base.metadata.create_all(bind=engine)
 
 raw_cors_origins = os.getenv("CORS_ORIGINS", "*")
 cors_origins = [

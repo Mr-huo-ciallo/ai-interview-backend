@@ -66,15 +66,21 @@ cd ai-interview-backend
 .\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
 ```
 
-已有数据库如果此前由 `Base.metadata.create_all` 创建，先完成备份和表结构核对，再将其标记为当前初始版本，避免重复建表：
+已有数据库如果此前由 `Base.metadata.create_all` 创建，先备份并将表结构校准到初始迁移，再将其标记为当前初始版本，避免重复建表。不得在结构尚未一致时直接执行 `stamp`：
 
 ```powershell
 .\.venv\Scripts\python.exe -m alembic -c alembic.ini stamp head
 ```
 
-生产环境必须设置 `AUTO_CREATE_TABLES=false`，并在启动应用前执行 `upgrade head`。后续修改模型时，应先创建新的迁移版本，再部署代码：
+应用启动不再自动建表；所有环境均应在启动应用前执行 `upgrade head`。后续修改模型时，应先创建新的迁移版本，再部署代码：
 
 ```powershell
 .\.venv\Scripts\python.exe -m alembic -c alembic.ini revision --autogenerate -m "describe_change"
 .\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
+```
+
+提交前运行只读结构检查，确认 ORM 模型没有遗漏迁移：
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini check
 ```
