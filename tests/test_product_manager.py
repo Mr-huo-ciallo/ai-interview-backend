@@ -57,7 +57,11 @@ def test_product_prompts_ask_for_product_judgment():
         "type": "technical", "question": "如何验证需求？", "answer": "先访谈用户。",
     }
     assert "产品经理面试评估助手" in llm_client.build_prompt(payload)
-    assert "techScore 表示产品判断能力" in llm_client.build_prompt(payload)
+    prompt = llm_client.build_prompt({**payload, "scores": {"techScore": 70}, "featureMatrix": [{"features": {"technicalDepth": 0.8}}]})
+    assert '"产品判断分": 70' in prompt
+    assert '"产品分析深度": 0.8' in prompt
+    assert "techScore" not in prompt
+    assert "technicalDepth" not in prompt
     assert "用户证据" in llm_client.build_followup_prompt(payload)
     assert "技术面试官" not in llm_client.build_followup_prompt(payload)
 

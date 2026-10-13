@@ -68,6 +68,26 @@ def _is_product_manager(payload: dict) -> bool:
     return payload.get("role") == "product_manager" or "产品经理" in title or "product manager" in title
 
 
+def _product_feedback_labels(value):
+    labels = {
+        "techScore": "产品判断分",
+        "technicalDepth": "产品分析深度",
+        "tech": "产品判断",
+        "expressionScore": "表达分",
+        "logicScore": "逻辑分",
+        "matchScore": "岗位匹配分",
+        "totalScore": "总分",
+        "confidence": "评分可信度",
+        "matrixWeight": "矩阵权重",
+        "scoreSource": "评分来源",
+    }
+    if isinstance(value, dict):
+        return {labels.get(key, key): _product_feedback_labels(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_product_feedback_labels(item) for item in value]
+    return value
+
+
 def build_prompt(payload: dict) -> str:
     role_name = payload.get("roleName") or payload.get("role") or "目标岗位"
     answers = payload.get("answers", [])
@@ -77,12 +97,16 @@ def build_prompt(payload: dict) -> str:
     feature_matrix = payload.get("featureMatrix", [])
     profile_summary = payload.get("profileSummary", {})
     evaluator = "产品经理面试评估助手" if _is_product_manager(payload) else "技术面试评估助手"
+    is_product_manager = _is_product_manager(payload)
     score_label_instruction = (
-        "岗位为产品经理：techScore 表示产品判断能力，technicalDepth 表示产品分析深度，"
-        "只是沿用数据库内部字段名。面向候选人的反馈必须写“产品判断”“产品分析深度”，"
-        "不要写“技术分”“技术能力”“技术深度”，也不要要求 Java、缓存等开发知识。"
-        if _is_product_manager(payload) else ""
+        "面向候选人的反馈使用“产品判断”“产品分析深度”等产品术语，不要要求 Java、缓存等开发知识。"
+        if is_product_manager else ""
     )
+    if is_product_manager:
+        scores = _product_feedback_labels(scores)
+        legacy_scores = _product_feedback_labels(legacy_scores)
+        matrix_scores = _product_feedback_labels(matrix_scores)
+        feature_matrix = _product_feedback_labels(feature_matrix)
 
     answer_text = []
     for index, item in enumerate(answers, start=1):
