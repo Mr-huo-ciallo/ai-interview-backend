@@ -22,7 +22,7 @@ data/interview_questions_export.json
 将 `data/interview_questions_export.json` 上传到服务器后端项目的 `data/` 目录，然后执行：
 
 ```bash
-cd /opt/ai-interview/ai-interview-backend
+cd /home/mr_huo/ai-interview-backend
 ./.venv/bin/python scripts/import_questions.py
 ```
 
@@ -34,3 +34,25 @@ cd /opt/ai-interview/ai-interview-backend
 ## 注意
 
 执行脚本前请确认 `.env` 中的 `DATABASE_URL` 指向目标数据库。
+
+## 服务器数据库定时备份
+
+服务器上的 `scripts/backup_database.sh` 使用 Docker Compose 的 `database` 服务，将整个 `MYSQL_DATABASE` 导出为压缩 SQL。默认保存到 `/home/mr_huo/backups/ai-interview/`，仅备份成功后清理超过 30 天的本脚本备份。该目录位于服务器本机，不是异机灾备。
+
+服务器用户 `mr_huo` 的 crontab 每天 03:00（服务器时区 Asia/Shanghai）运行：
+
+```cron
+0 3 * * * /home/mr_huo/ai-interview-backend/scripts/backup_database.sh >> /home/mr_huo/backups/ai-interview/backup.log 2>&1
+```
+
+手动执行与检查：
+
+```bash
+cd /home/mr_huo/ai-interview-backend
+./scripts/backup_database.sh
+crontab -l
+ls -lh /home/mr_huo/backups/ai-interview/
+tail -n 20 /home/mr_huo/backups/ai-interview/backup.log
+```
+
+恢复前先确认目标数据库并另外备份当前状态；不要将备份直接导回仍在使用的生产数据库。备份文件可先用 `gzip -t` 和对应 `.sha256` 校验，再在独立 MySQL 实例试恢复。
