@@ -77,6 +77,12 @@ def build_prompt(payload: dict) -> str:
     feature_matrix = payload.get("featureMatrix", [])
     profile_summary = payload.get("profileSummary", {})
     evaluator = "产品经理面试评估助手" if _is_product_manager(payload) else "技术面试评估助手"
+    score_label_instruction = (
+        "岗位为产品经理：techScore 表示产品判断能力，technicalDepth 表示产品分析深度，"
+        "只是沿用数据库内部字段名。面向候选人的反馈必须写“产品判断”“产品分析深度”，"
+        "不要写“技术分”“技术能力”“技术深度”，也不要要求 Java、缓存等开发知识。"
+        if _is_product_manager(payload) else ""
+    )
 
     answer_text = []
     for index, item in enumerate(answers, start=1):
@@ -103,6 +109,7 @@ def build_prompt(payload: dict) -> str:
 2. 必须优先参考 featureMatrix 中的覆盖情况、缺失关键点、题型分项分和 confidence。
 3. 对每道题说明“已覆盖什么、缺失什么、下一步如何补强”，避免空泛评价。
 4. 只输出合法 JSON，不要输出 markdown、代码块或额外说明。
+{score_label_instruction}
 
 目标岗位：{role_name}
 

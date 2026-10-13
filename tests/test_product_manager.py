@@ -3,7 +3,7 @@ from collections import Counter
 import llm_client
 from db import SessionLocal
 from models import InterviewQuestionModel
-from scoring.matrix import extract_features
+from scoring.matrix import build_feature_matrix, extract_features
 from seed import product_manager
 
 
@@ -57,8 +57,25 @@ def test_product_prompts_ask_for_product_judgment():
         "type": "technical", "question": "如何验证需求？", "answer": "先访谈用户。",
     }
     assert "产品经理面试评估助手" in llm_client.build_prompt(payload)
+    assert "techScore 表示产品判断能力" in llm_client.build_prompt(payload)
     assert "用户证据" in llm_client.build_followup_prompt(payload)
     assert "技术面试官" not in llm_client.build_followup_prompt(payload)
+
+
+def test_product_scoring_prefers_evidence_based_answer():
+    question = product_manager.load_questions()[0]
+    weak = build_feature_matrix("product_manager", [{**question, "answer": "直接加排行榜。"}])
+    strong = build_feature_matrix("product_manager", [{
+        **question,
+        "answer": (
+            "首先确定目标用户和使用场景，通过用户访谈观察当前做法，区分真实痛点与排行榜方案。"
+            "其次用行为数据与分群确认问题规模，比较推荐卡片等替代方案的用户价值、成本和风险。"
+            "最后明确实验假设、成功指标与数据口径，灰度验证后复盘并迭代。"
+        ),
+    }])
+
+    assert strong["scores"]["totalScore"] > weak["scores"]["totalScore"]
+    assert strong["questionRows"][0]["features"]["keyPointCoverage"] > weak["questionRows"][0]["features"]["keyPointCoverage"]
 
 
 def test_product_report_fallback_does_not_recommend_java(client, monkeypatch):

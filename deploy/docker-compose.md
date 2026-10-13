@@ -74,6 +74,7 @@ docker compose exec -T database sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD
 ```
 
 题目措辞、参考回答和追问为项目原创；`sources` 记录设计依据，不表示从这些网站复制题目。评分维度采用现有数据库字段，产品经理的 `techScore` 在界面显示为“产品判断”。
+目前校准仅验证产品术语与强弱回答排序；尚未用人工标注答卷核对绝对分数。
 
 镜像标签由 `.env` 中的 `APP_IMAGE_TAG` 控制。正式部署时应改成 Git 提交短 SHA，而不是长期使用 `local` 或 `latest`。回滚时切回两个仓库的已知提交，恢复对应数据库备份，再重新构建。
 
