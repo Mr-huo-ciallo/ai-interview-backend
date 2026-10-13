@@ -1,0 +1,287 @@
+{
+  "role": "product_manager",
+  "sources": {
+    "sfia": "https://sfia-online.org/zh/sfia-9/skills/product-management",
+    "gitlab": "https://handbook.gitlab.com/job-description-library/product/product-manager/",
+    "heart": "https://research.google/pubs/measuring-the-user-experience-on-a-large-scale-user-centered-metrics-for-web-applications/",
+    "scrum": "https://scrumguides.org/scrum-guide.html",
+    "atlassian": "https://www.atlassian.com/agile/product-management/product-manager"
+  },
+  "questions": [
+    {
+      "dimension": "用户研究", "source": "sfia", "type": "technical", "difficulty": "easy",
+      "content": "用户说“希望首页加一个排行榜”。产品经理如何确认这背后的真实需求？",
+      "tags": "用户访谈,需求,痛点", "keyPoints": "使用场景;目标用户;真实痛点;替代方案",
+      "scoringFocus": "先问为什么;区分需求与方案;不预设排行榜",
+      "referenceAnswerBasic": "先追问用户在什么场景下想看排行榜，以及当前遇到的困难。",
+      "referenceAnswerGood": "先确定目标用户、使用场景和想完成的任务，访谈其现有做法与障碍；再观察行为数据，判断是缺少比较、激励还是发现内容，并比较排行榜与更轻的替代方案。",
+      "followupFocus": "识别真实问题的证据", "followupExamples": "如果只有少数重度用户提出这个要求，会如何判断是否值得做？"
+    },
+    {
+      "dimension": "用户研究", "source": "gitlab", "type": "scenario", "difficulty": "medium",
+      "content": "新用户注册完成率一周内下降。产品经理如何结合数据与访谈定位问题？",
+      "tags": "转化率,漏斗,用户访谈", "keyPoints": "确认指标口径;漏斗分段;用户分群;定性验证",
+      "scoringFocus": "先排除采集问题;比较受影响人群;提出可验证假设",
+      "referenceAnswerBasic": "检查注册漏斗各步骤，访谈未完成注册的用户。",
+      "referenceAnswerGood": "先核对埋点和注册完成率口径，再按渠道、设备、版本分群定位跌落步骤；结合回放或访谈理解障碍，形成若干假设，按影响范围和验证成本排序处理。",
+      "followupFocus": "异常归因与样本选择", "followupExamples": "如果只有移动端新版本下降，下一步怎样缩小范围？"
+    },
+    {
+      "dimension": "用户研究", "source": "gitlab", "type": "project", "difficulty": "medium",
+      "content": "讲述一次用户研究改变产品方案的经历。你如何确认改变是合理的？",
+      "tags": "用户研究,方案验证,项目复盘", "keyPoints": "原始假设;研究方法;反例证据;决策结果",
+      "scoringFocus": "说明本人职责;解释证据如何改变判断;给出结果",
+      "referenceAnswerBasic": "描述原方案、用户反馈和调整后的方案。",
+      "referenceAnswerGood": "交代原方案要解决的用户问题及假设，说明访谈对象和观察到的反例，与数据交叉核验后调整方案，并用上线后的任务完成率或反馈验证变化。",
+      "followupFocus": "证据质量和个人贡献", "followupExamples": "如果反馈来自两个大客户而非普通用户，你会如何处理？"
+    },
+    {
+      "dimension": "用户研究", "source": "sfia", "type": "scenario", "difficulty": "hard",
+      "content": "访谈说用户喜欢新功能，但使用数据很低。产品经理如何解释冲突并决定是否继续投入？",
+      "tags": "用户访谈,行为数据,验证", "keyPoints": "检查样本偏差;核对可发现性;区分意愿与行为;设退出条件",
+      "scoringFocus": "不单凭一种证据下结论;提出验证设计;明确投入边界",
+      "referenceAnswerBasic": "核查访谈样本和功能曝光情况，再观察真实使用。",
+      "referenceAnswerGood": "先确认访谈样本是否代表目标用户、埋点是否正确及用户能否看到功能；再按用户分群比较曝光、首次使用和复用，安排可用性测试或小流量实验，并预先设定继续与停止投入的条件。",
+      "followupFocus": "意愿与行为冲突的解释", "followupExamples": "如果曝光充分却几乎无人复用，怎样向团队建议停止投入？"
+    },
+    {
+      "dimension": "用户研究", "source": "sfia", "type": "technical", "difficulty": "hard",
+      "content": "为面向校园应届生的求职产品设计一轮访谈，如何避免只听到活跃用户的声音？",
+      "tags": "样本偏差,用户访谈,用户分群", "keyPoints": "明确目标人群;覆盖不同使用状态;非诱导问题;交叉验证",
+      "scoringFocus": "说明招募方案;识别幸存者偏差;承认样本限制",
+      "referenceAnswerBasic": "同时邀请活跃、沉默和流失用户，避免诱导式提问。",
+      "referenceAnswerGood": "按求职阶段、院校背景和活跃程度分层招募，包含未注册或流失者；围绕最近一次真实求职行为提问，不询问对预设功能的喜好，再与行为数据对照并记录样本无法代表的人群。",
+      "followupFocus": "招募与证据边界", "followupExamples": "无法接触流失用户时，哪些代理证据可以补充？"
+    },
+
+    {
+      "dimension": "需求优先级", "source": "scrum", "type": "technical", "difficulty": "easy",
+      "content": "当需求数量超过研发容量时，产品经理排序前至少要确认哪些信息？",
+      "tags": "优先级,用户价值,成本", "keyPoints": "目标;用户价值;影响范围;实现成本;风险",
+      "scoringFocus": "不只按声音大小排序;把判断与目标关联",
+      "referenceAnswerBasic": "了解目标、用户价值和实现成本，再排序。",
+      "referenceAnswerGood": "先确认当前产品目标与衡量指标，评估需求对目标用户的价值、覆盖范围、实现及维护成本、依赖和风险；不确定项先做低成本验证，再与团队沟通排序理由。",
+      "followupFocus": "排序依据与不确定性", "followupExamples": "一个价值很高但研发估算不确定的需求如何安排？"
+    },
+    {
+      "dimension": "需求优先级", "source": "gitlab", "type": "scenario", "difficulty": "medium",
+      "content": "销售希望为单个大客户定制功能，普通用户则持续反馈基础体验差。如何做取舍？",
+      "tags": "客户需求,用户价值,业务目标", "keyPoints": "客户价值;共性需求;机会成本;替代方案",
+      "scoringFocus": "量化不同选择的影响;考虑可复用性;说明沟通方式",
+      "referenceAnswerBasic": "比较客户收入与基础体验问题的影响范围。",
+      "referenceAnswerGood": "明确合同承诺和客户价值，同时量化基础体验对留存或转化的影响；判断定制功能能否抽象为共性能力，估算机会成本，提出分阶段方案并向销售和研发说明取舍与时间预期。",
+      "followupFocus": "商业承诺与产品共性", "followupExamples": "若合同已经承诺两周上线，怎样调整计划？"
+    },
+    {
+      "dimension": "需求优先级", "source": "scrum", "type": "project", "difficulty": "medium",
+      "content": "讲述一次你主动推迟或取消需求的经历。你如何说服相关方？",
+      "tags": "优先级,协作,产品目标", "keyPoints": "原需求背景;取舍依据;相关方沟通;结果验证",
+      "scoringFocus": "交代反对意见;说明可核查的结果;突出个人决策",
+      "referenceAnswerBasic": "说明目标、资源限制和替代安排。",
+      "referenceAnswerGood": "描述原需求及提出方，列出与产品目标不一致的证据、成本或风险；提供可接受的替代方案及复议条件，与相关方达成一致，并在后续复盘其影响。",
+      "followupFocus": "对反对意见的处理", "followupExamples": "如果业务负责人仍坚持，你会如何升级或试验？"
+    },
+    {
+      "dimension": "需求优先级", "source": "sfia", "type": "technical", "difficulty": "medium",
+      "content": "如何向团队解释路线图中的“目标”与“功能清单”不是一回事？",
+      "tags": "路线图,产品目标,优先级", "keyPoints": "目标结果;候选方案;可调整性;衡量指标",
+      "scoringFocus": "区分结果与产出;说明何时调整路线图",
+      "referenceAnswerBasic": "目标描述希望改善的结果，功能只是可能的手段。",
+      "referenceAnswerGood": "路线图先说明要改善的用户或业务结果与衡量指标，功能是当下验证目标的候选方案；新证据出现时可调整方案和顺序，但需解释目标、依赖和承诺受到的影响。",
+      "followupFocus": "结果导向的实际做法", "followupExamples": "若某功能已被公开承诺，证据显示效果不佳时怎么办？"
+    },
+    {
+      "dimension": "需求优先级", "source": "sfia", "type": "scenario", "difficulty": "hard",
+      "content": "同一季度有增长、稳定性和合规三类需求，资源只能覆盖两类。你如何形成可执行的优先级决策？",
+      "tags": "优先级,风险,资源约束", "keyPoints": "硬约束;目标权重;机会成本;决策记录;复议机制",
+      "scoringFocus": "识别不可延期事项;说明权衡而非机械套公式;落实责任人与时间",
+      "referenceAnswerBasic": "先找出必须满足的硬约束，再比较其余需求的价值和成本。",
+      "referenceAnswerGood": "与法务和研发确认合规期限及稳定性故障风险，把不可延期事项作为约束；其余按季度目标、用户影响、收益、成本和不确定性比较，记录未做事项的机会成本，明确责任人、里程碑和复议条件。",
+      "followupFocus": "冲突目标的决策边界", "followupExamples": "若稳定性问题概率低但后果严重，权重如何体现？"
+    },
+
+    {
+      "dimension": "产品设计", "source": "atlassian", "type": "technical", "difficulty": "easy",
+      "content": "设计新功能之前，产品经理为什么要先写清目标用户和使用场景？",
+      "tags": "目标用户,使用场景,产品设计", "keyPoints": "界定问题;避免功能堆砌;明确成功标准",
+      "scoringFocus": "指出目标用户差异;把方案与任务联系起来",
+      "referenceAnswerBasic": "不同用户的任务不同，先界定问题才能设计合适功能。",
+      "referenceAnswerGood": "目标用户和场景决定真正的任务、限制条件及使用频率；先定义它们可以筛掉不相关功能，设计更小的验证方案，并明确上线后观察什么结果才算有效。",
+      "followupFocus": "目标人群划分", "followupExamples": "同一功能同时服务新手和专家用户时如何处理？"
+    },
+    {
+      "dimension": "产品设计", "source": "gitlab", "type": "scenario", "difficulty": "medium",
+      "content": "求职网站用户说“职位太多，不知道投哪一个”。你会如何设计首版解决方案？",
+      "tags": "用户问题,职位匹配,最小方案", "keyPoints": "目标用户;决策障碍;候选方案;最小验证",
+      "scoringFocus": "先拆解问题;避免直接堆筛选器;说明指标",
+      "referenceAnswerBasic": "了解用户选择困难的原因，先做简单筛选或推荐验证。",
+      "referenceAnswerGood": "通过访谈区分信息过载、资格不匹配和缺少比较依据；针对主要障碍设计最小方案，如关键条件筛选和匹配理由，先用少量职位测试选择时间、投递率及误导性推荐反馈。",
+      "followupFocus": "方案范围与验证", "followupExamples": "如果没有推荐算法团队，首版怎样做？"
+    },
+    {
+      "dimension": "产品设计", "source": "atlassian", "type": "project", "difficulty": "medium",
+      "content": "讲述一次从模糊问题到可交付产品方案的经历。你如何界定首版范围？",
+      "tags": "问题定义,最小方案,验收", "keyPoints": "问题证据;方案比较;首版边界;验收标准",
+      "scoringFocus": "说明本人贡献;体现舍弃项及理由;提供验证结果",
+      "referenceAnswerBasic": "说明用户问题、首版功能与上线结果。",
+      "referenceAnswerGood": "先交代用户和业务问题及证据，再说明比较过哪些方案、为何选择当前首版；列出暂不做的功能、核心流程和验收标准，最后用用户任务完成情况或指标复盘。",
+      "followupFocus": "首版边界和舍弃项", "followupExamples": "哪个功能最难舍弃？最终依据是什么？"
+    },
+    {
+      "dimension": "产品设计", "source": "gitlab", "type": "scenario", "difficulty": "hard",
+      "content": "一项新功能提升了点击率却增加了用户完成任务的时间。你如何判断它是否真的改善体验？",
+      "tags": "用户体验,指标,任务完成", "keyPoints": "目标任务;指标冲突;用户分群;定性观察;取舍",
+      "scoringFocus": "不把点击率当最终价值;提出综合指标;说明结论条件",
+      "referenceAnswerBasic": "同时看任务完成率、时间和用户反馈。",
+      "referenceAnswerGood": "先定义该功能要帮助用户完成的任务；核对点击率上涨是否来自误触或额外步骤，按新老用户分群比较完成率、耗时和后续留存，辅以可用性观察，再按用户价值决定保留、改版或回滚。",
+      "followupFocus": "代理指标与真实价值", "followupExamples": "若收入上涨但任务效率下降，如何与业务方讨论？"
+    },
+    {
+      "dimension": "产品设计", "source": "atlassian", "type": "technical", "difficulty": "hard",
+      "content": "设计一个允许用户修改重要设置的流程，怎样处理误操作、撤销与跨端一致性？",
+      "tags": "交互设计,风险,跨端体验", "keyPoints": "操作后果;预防误触;撤销或恢复;状态反馈;跨端验证",
+      "scoringFocus": "按风险设计保护级别;兼顾体验与实现约束",
+      "referenceAnswerBasic": "高风险操作增加确认，提供明确反馈和恢复办法。",
+      "referenceAnswerGood": "先区分可逆与不可逆设置：重要变更前解释影响并二次确认，提交后显示生效状态、撤销入口或恢复路径；与研发确认跨端同步和失败回滚机制，用任务测试检查用户是否理解当前状态。",
+      "followupFocus": "失败和回滚场景", "followupExamples": "用户离线修改后另一设备又修改了同一设置，界面如何提示？"
+    },
+
+    {
+      "dimension": "数据指标", "source": "heart", "type": "technical", "difficulty": "easy",
+      "content": "为新上线的搜索功能设定成功指标时，为什么只看搜索次数不够？",
+      "tags": "指标,用户任务,搜索体验", "keyPoints": "目标任务;结果指标;护栏指标;数据口径",
+      "scoringFocus": "区分使用量和用户价值;说明至少一个反向风险",
+      "referenceAnswerBasic": "搜索次数不代表用户找到内容，还要看结果点击和任务完成。",
+      "referenceAnswerGood": "先定义用户通过搜索要完成的任务，再看成功搜索率、结果点击后的完成率和耗时；同时关注无结果率、重复搜索及退出率，明确统计口径，避免把反复搜索误判成成功。",
+      "followupFocus": "成功指标与护栏", "followupExamples": "搜索次数上升、任务完成率下降时如何解释？"
+    },
+    {
+      "dimension": "数据指标", "source": "heart", "type": "scenario", "difficulty": "medium",
+      "content": "某产品的次日留存从 35% 降到 30%。产品经理第一轮会检查什么？",
+      "tags": "留存,数据口径,用户分群", "keyPoints": "确认统计口径;检查埋点;分群比较;形成假设",
+      "scoringFocus": "不急于归因;区分新老版本和渠道;提出验证动作",
+      "referenceAnswerBasic": "核对指标与埋点，按渠道和版本分析下降人群。",
+      "referenceAnswerGood": "先确认统计窗口、用户去重与埋点是否变化，再按新老用户、渠道、设备和版本分群，检查同期发布、流量结构或故障；找出受影响路径后用漏斗和用户反馈验证假设。",
+      "followupFocus": "留存异常的归因", "followupExamples": "若只有新渠道用户下降，怎样避免把渠道质量当产品问题？"
+    },
+    {
+      "dimension": "数据指标", "source": "heart", "type": "technical", "difficulty": "medium",
+      "content": "为“简历优化建议”功能建立从产品目标到指标的链条，你会如何设计？",
+      "tags": "产品目标,指标,验证", "keyPoints": "用户目标;可观察行为;结果指标;护栏指标",
+      "scoringFocus": "避免只看生成次数;说明指标与价值的因果距离",
+      "referenceAnswerBasic": "衡量建议采纳率和用户满意度，而不只看生成次数。",
+      "referenceAnswerGood": "先定义用户想提高简历质量与投递信心，观察查看、编辑和采纳建议的行为；用完成一版可投递简历的比例及后续使用情况衡量结果，同时检查误改、耗时和用户反馈，避免以模型调用次数代替价值。",
+      "followupFocus": "指标是否代表真实收益", "followupExamples": "无法取得面试邀约数据时，用什么近端指标？"
+    },
+    {
+      "dimension": "数据指标", "source": "heart", "type": "project", "difficulty": "medium",
+      "content": "讲述一次你用数据推翻直觉判断的经历。如何排除数据本身有误？",
+      "tags": "数据分析,假设,复盘", "keyPoints": "原始假设;数据来源;口径核查;行动结果",
+      "scoringFocus": "说清反证与复核方法;解释决策变化",
+      "referenceAnswerBasic": "说明原判断、看到的数据以及后来的调整。",
+      "referenceAnswerGood": "交代原判断及其依据，核对埋点、统计口径和样本，再按时间或用户分群复核反证；说明因此改变了哪个产品决策，以及上线后如何验证新判断。",
+      "followupFocus": "数据可信度和反证", "followupExamples": "数据量很小但业务方催决策时怎么办？"
+    },
+    {
+      "dimension": "数据指标", "source": "heart", "type": "scenario", "difficulty": "hard",
+      "content": "A/B 实验显示转化率提升 3%，但投诉率也提高。你如何决定是否全量发布？",
+      "tags": "实验,转化率,护栏指标", "keyPoints": "实验设计;统计不确定性;投诉严重度;用户分群;发布决策",
+      "scoringFocus": "不只看单一增幅;考虑长期信任;说明回滚条件",
+      "referenceAnswerBasic": "核查实验有效性，并比较转化收益与投诉风险。",
+      "referenceAnswerGood": "先检查随机分流、样本量、实验周期和口径，再区分投诉是否集中于高风险用户或关键流程；综合转化收益、投诉严重度及长期留存决定继续实验、修改方案或暂停发布，明确护栏阈值和回滚条件。",
+      "followupFocus": "实验可信度与护栏", "followupExamples": "如果投诉来自少数付费大客户，结论会如何变化？"
+    },
+
+    {
+      "dimension": "交付协作", "source": "scrum", "type": "technical", "difficulty": "easy",
+      "content": "进入开发前，产品经理与设计、研发至少要对齐哪些内容？",
+      "tags": "协作,验收,需求", "keyPoints": "用户问题;目标与范围;验收标准;依赖风险",
+      "scoringFocus": "不只交付页面稿;确认共同理解与责任",
+      "referenceAnswerBasic": "对齐目标用户、功能范围、验收标准和依赖。",
+      "referenceAnswerGood": "共同确认要解决的用户问题、成功指标、首版范围、关键流程及验收标准；请研发说明技术约束和依赖、设计说明体验风险，并记录未决问题与负责人。",
+      "followupFocus": "共同理解与验收", "followupExamples": "研发发现关键依赖无法按期完成时如何调整？"
+    },
+    {
+      "dimension": "交付协作", "source": "scrum", "type": "scenario", "difficulty": "medium",
+      "content": "迭代中途业务提出紧急需求，研发担心影响承诺。产品经理如何处理？",
+      "tags": "迭代,优先级,协作", "keyPoints": "紧急程度;目标影响;替换成本;团队协商",
+      "scoringFocus": "不单方面插单;说明调整承诺的沟通",
+      "referenceAnswerBasic": "先判断是否真正紧急，再与团队评估影响。",
+      "referenceAnswerGood": "澄清需求的时限、用户或业务损失及不做的后果；与研发评估工作量和被挤出的事项，优先尝试更小的应急方案，若必须调整迭代则同步相关方新的范围、风险和时间。",
+      "followupFocus": "插单的实际代价", "followupExamples": "如果是线上支付故障，哪些流程可以加快？"
+    },
+    {
+      "dimension": "交付协作", "source": "gitlab", "type": "project", "difficulty": "medium",
+      "content": "讲述一次产品、设计和研发意见不一致的项目。你如何形成决定？",
+      "tags": "跨团队协作,取舍,产品目标", "keyPoints": "分歧事实;共同目标;比较依据;决策结果",
+      "scoringFocus": "尊重专业边界;说明个人行动;复盘合作结果",
+      "referenceAnswerBasic": "让各方说明顾虑，围绕目标比较方案。",
+      "referenceAnswerGood": "还原各方关注的用户体验、交付成本和业务时限，用共同目标及用户证据比较方案；不能确定时设计小范围验证，记录决定及责任人，并复盘合作与产品结果。",
+      "followupFocus": "分歧与决策机制", "followupExamples": "如果无法达成共识，最终由谁拍板、依据是什么？"
+    },
+    {
+      "dimension": "交付协作", "source": "scrum", "type": "scenario", "difficulty": "hard",
+      "content": "临近上线发现核心流程有高风险缺陷，而市场活动无法延期。你如何协调发布决策？",
+      "tags": "上线风险,跨团队协作,回滚", "keyPoints": "影响评估;风险分级;替代方案;发布门槛;回滚",
+      "scoringFocus": "不隐瞒缺陷;协调各方决策;明确监测和止损",
+      "referenceAnswerBasic": "评估缺陷影响并与研发、市场沟通是否延期或缩小发布范围。",
+      "referenceAnswerGood": "让研发确认缺陷触发条件、影响人群和修复时间，和市场比较延期、关闭功能或灰度发布的影响；若涉及核心交易或数据安全则坚持发布门槛，形成书面决定、监测指标、责任人及回滚预案。",
+      "followupFocus": "发布门槛与责任", "followupExamples": "如果只能灰度，哪些指标达到阈值要立即回滚？"
+    },
+    {
+      "dimension": "交付协作", "source": "gitlab", "type": "technical", "difficulty": "hard",
+      "content": "产品经理如何在不替研发决定技术方案的前提下，推动复杂需求按目标交付？",
+      "tags": "专业边界,需求,协作", "keyPoints": "明确问题与结果;共享约束;讨论替代方案;验收结果",
+      "scoringFocus": "区分做什么与怎么做;允许研发参与取舍;持续验证",
+      "referenceAnswerBasic": "讲清用户问题和目标，让研发选择可行实现。",
+      "referenceAnswerGood": "产品经理负责说明用户问题、预期结果、优先级和必要约束；与研发共同探讨成本、风险和可替代范围，由研发主导技术实现，并通过分阶段验收和真实使用数据检查交付是否解决问题。",
+      "followupFocus": "职责边界与共同决策", "followupExamples": "研发提出更低成本但体验不同的方案时怎样比较？"
+    },
+
+    {
+      "dimension": "项目复盘", "source": "sfia", "type": "project", "difficulty": "easy",
+      "content": "复盘一项已上线功能时，产品经理应先对照哪些内容？",
+      "tags": "项目复盘,产品目标,指标", "keyPoints": "原目标;实际结果;用户反馈;后续行动",
+      "scoringFocus": "对比预期和事实;不只汇报上线完成",
+      "referenceAnswerBasic": "对比上线前目标与上线后指标，再看用户反馈。",
+      "referenceAnswerGood": "回到立项时的用户问题、成功指标和预期，核对实际采用、任务完成及负面反馈；区分执行偏差与假设错误，明确下一轮保留、调整或停止的行动。",
+      "followupFocus": "目标与结果差异", "followupExamples": "功能如期上线却无人使用，复盘结论会是什么？"
+    },
+    {
+      "dimension": "项目复盘", "source": "gitlab", "type": "project", "difficulty": "medium",
+      "content": "讲述一次上线结果低于预期的产品项目。你如何区分执行问题与方向问题？",
+      "tags": "项目复盘,假设,验证", "keyPoints": "原始假设;执行检查;用户证据;后续决策",
+      "scoringFocus": "承担个人责任;用证据区分原因;提出改进",
+      "referenceAnswerBasic": "先查是否按方案交付，再看用户是否真的有需求。",
+      "referenceAnswerGood": "核对交付质量、曝光和可用性等执行条件，再查看目标用户是否遇到预期问题及是否采用方案；将证据与原假设逐项对照，说明自己推动的修复或转向，以及后续结果。",
+      "followupFocus": "失败归因与责任", "followupExamples": "如果团队已按时交付但需求判断错误，你会怎么复盘自己的决策？"
+    },
+    {
+      "dimension": "项目复盘", "source": "sfia", "type": "scenario", "difficulty": "medium",
+      "content": "功能上线四周后核心指标没有变化，你会如何决定继续迭代还是停止？",
+      "tags": "指标,迭代,产品价值", "keyPoints": "曝光与采用;目标人群;统计窗口;继续条件;停止条件",
+      "scoringFocus": "检查实验是否有效;避免沉没成本;明确下一步",
+      "referenceAnswerBasic": "确认用户是否看到并使用功能，再判断指标是否需要更长时间。",
+      "referenceAnswerGood": "先核查曝光、采用、指标口径和观察窗口，按目标人群拆分，确认是否因为体验障碍或方案本身无效；设一次有明确指标的低成本迭代，若仍无改善且机会成本高则停止投入。",
+      "followupFocus": "继续与停止的门槛", "followupExamples": "什么证据会让你直接停止而不再迭代？"
+    },
+    {
+      "dimension": "项目复盘", "source": "gitlab", "type": "project", "difficulty": "medium",
+      "content": "回顾一个有多个相关方的项目。你如何评估沟通是否有效，而非只看会议次数？",
+      "tags": "跨团队协作,决策,复盘", "keyPoints": "决策清晰度;阻塞处理;责任分工;交付结果",
+      "scoringFocus": "关注协作产出;举出具体分歧及解决结果",
+      "referenceAnswerBasic": "看问题是否及时解决、负责人是否明确。",
+      "referenceAnswerGood": "复盘关键决策是否有共同依据、阻塞是否及时暴露、责任人与时间是否清楚，以及交付和用户结果是否受沟通影响；用一次具体分歧说明改进，而非统计开会次数。",
+      "followupFocus": "沟通效果的证据", "followupExamples": "若会议减少但返工增加，会如何调整协作方式？"
+    },
+    {
+      "dimension": "项目复盘", "source": "sfia", "type": "scenario", "difficulty": "hard",
+      "content": "增长实验带来短期新增，但三个月后留存变差。你会如何复盘并调整产品策略？",
+      "tags": "增长,留存,长期价值", "keyPoints": "渠道质量;用户分群;长期指标;原因验证;策略调整",
+      "scoringFocus": "区分短期获客与长期价值;避免事后归因;给出止损动作",
+      "referenceAnswerBasic": "分群比较新用户质量和后续留存，评估是否需要停止实验。",
+      "referenceAnswerGood": "对照实验组与同期用户，按渠道、用户特征和使用路径拆解留存变化，核查外部因素与埋点；如果短期转化牺牲长期价值，调整目标和护栏，暂停有害渠道或方案，并重新验证留存改善。",
+      "followupFocus": "长期价值与增长取舍", "followupExamples": "若新增收入已计入季度目标，如何向管理层说明暂停的依据？"
+    }
+  ]
+}

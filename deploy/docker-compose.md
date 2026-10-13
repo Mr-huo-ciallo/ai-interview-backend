@@ -52,6 +52,8 @@ curl http://127.0.0.1:8080/backend-health
 
 ## 更新与回滚
 
+当前服务器已部署在 `/home/mr_huo/ai-interview-backend`，前端仓库位于同级目录 `/home/mr_huo/ai-interview-platform`。以下命令在后端目录执行。
+
 更新前先备份数据库，再分别拉取两个仓库的目标提交：
 
 ```bash
@@ -62,6 +64,16 @@ docker compose build
 docker compose up -d
 docker compose ps
 ```
+
+产品经理首批题位于 `seed/product_manager_questions.json`，共 30 题。更新后先预览缺口，再导入；命令只补不存在的题，不覆盖后台已编辑的内容：
+
+```bash
+docker compose run --rm --no-deps backend python -m seed.product_manager
+docker compose run --rm --no-deps backend python -m seed.product_manager --apply
+docker compose exec -T database sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -N -e "SELECT role, COUNT(*) FROM interview_questions WHERE role = '\''product_manager'\'' GROUP BY role;"'
+```
+
+题目措辞、参考回答和追问为项目原创；`sources` 记录设计依据，不表示从这些网站复制题目。评分维度采用现有数据库字段，产品经理的 `techScore` 在界面显示为“产品判断”。
 
 镜像标签由 `.env` 中的 `APP_IMAGE_TAG` 控制。正式部署时应改成 Git 提交短 SHA，而不是长期使用 `local` 或 `latest`。回滚时切回两个仓库的已知提交，恢复对应数据库备份，再重新构建。
 

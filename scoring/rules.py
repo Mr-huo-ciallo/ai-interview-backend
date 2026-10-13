@@ -181,7 +181,10 @@ def generate_strengths(
     result = []
 
     if tech_score >= 75:
-        result.append("对目标岗位的核心技术点覆盖较好。")
+        result.append(
+            "对产品管理核心能力的覆盖较好。" if role == "product_manager"
+            else "对目标岗位的核心技术点覆盖较好。"
+        )
     if expression_score >= 75:
         result.append("整体表达较清晰，回答比较完整。")
     if logic_score >= 75:
@@ -209,7 +212,10 @@ def generate_weaknesses(
     result = []
 
     if tech_score < 75:
-        result.append("岗位核心知识点覆盖不足，技术回答深度仍需提升。")
+        result.append(
+            "用户问题、判断依据或验证方法覆盖不足。" if role == "product_manager"
+            else "岗位核心知识点覆盖不足，技术回答深度仍需提升。"
+        )
     if expression_score < 75:
         result.append("回答长度或表达完整性不足，建议进一步展开。")
     if logic_score < 75:

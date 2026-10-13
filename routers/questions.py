@@ -43,6 +43,12 @@ def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
         data.type,
         "你可以结合具体项目经验，再进一步展开说明吗？",
     )
+    if data.role == "product_manager":
+        follow_up_question = {
+            "project": "你如何确认用户问题，并验证最终方案产生了预期效果？",
+            "technical": "你会用哪些证据支持这个产品判断？",
+            "scenario": "在资源有限时，你会如何比较方案的价值、成本和风险？",
+        }.get(data.type, "你会如何验证这个产品方案是否有效？")
 
     try:
         question_meta = get_question_by_role_and_content(db, data.role, data.question)

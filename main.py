@@ -173,7 +173,11 @@ def generate_report(
     match_score = final_scores["matchScore"]
     total_score = final_scores["totalScore"]
 
-    summary = "整体能够完成本次模拟面试，但部分回答仍可进一步补充技术细节和表达层次。"
+    summary = (
+        "整体能够完成本次模拟面试，但部分回答仍需补充用户证据、决策依据和效果验证。"
+        if data.role == "product_manager"
+        else "整体能够完成本次模拟面试，但部分回答仍可进一步补充技术细节和表达层次。"
+    )
     historical_insight = ""
     historical_suggestions = []
 
@@ -204,7 +208,11 @@ def generate_report(
             "comment": "本题已完成作答，系统已结合关键点覆盖、评分重点命中、参考答案相似度和回答结构进行评估。",
             "coveredKeyPoints": features.get("coveredKeyPoints", []),
             "missingKeyPoints": features.get("missingKeyPoints", []),
-            "advice": "建议优先补充缺失关键点，并结合原理、边界条件、实际场景或验证方式展开。"
+            "advice": (
+                "建议补充用户与业务目标、方案取舍依据，以及可检验的结果指标。"
+                if data.role == "product_manager"
+                else "建议优先补充缺失关键点，并结合原理、边界条件、实际场景或验证方式展开。"
+            )
         })
 
     profile_summary = {}

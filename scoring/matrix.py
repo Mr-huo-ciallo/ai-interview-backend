@@ -15,6 +15,12 @@ TECH_DEPTH_TERMS = [
     "complexity", "performance", "consistency", "transaction", "index", "cache",
 ]
 
+PRODUCT_DEPTH_TERMS = [
+    "用户细分", "样本偏差", "需求", "痛点", "假设", "验证", "优先级",
+    "成本", "收益", "取舍", "指标", "数据口径", "归因", "实验", "漏斗",
+    "转化", "留存", "复盘", "风险", "约束", "迭代", "用户价值",
+]
+
 LOGIC_TERMS = [
     "首先", "其次", "然后", "最后", "因为", "所以", "因此", "如果", "否则",
     "步骤", "排查", "定位", "分析", "验证", "方案", "假设", "对比", "取舍",
@@ -158,7 +164,8 @@ def extract_features(role: str, item: dict) -> dict:
         followup_gain = min(1.0, _length_quality(followup_answer) * 0.6)
 
     reference_similarity = _jaccard_similarity(answer_text, reference_answer)
-    technical_depth = _keyword_density(answer_text, TECH_DEPTH_TERMS)
+    depth_terms = PRODUCT_DEPTH_TERMS if role == "product_manager" else TECH_DEPTH_TERMS
+    technical_depth = _keyword_density(answer_text, depth_terms)
     logic_structure = max(
         _keyword_density(answer_text, LOGIC_TERMS),
         min(0.65, concept_richness * 0.75),

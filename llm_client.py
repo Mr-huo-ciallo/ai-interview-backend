@@ -63,6 +63,11 @@ def _chat_json(system_prompt: str, user_prompt: str, temperature: float) -> dict
     return result
 
 
+def _is_product_manager(payload: dict) -> bool:
+    title = str(payload.get("jobTitle", "")).lower()
+    return payload.get("role") == "product_manager" or "产品经理" in title or "product manager" in title
+
+
 def build_prompt(payload: dict) -> str:
     role_name = payload.get("roleName") or payload.get("role") or "目标岗位"
     answers = payload.get("answers", [])
@@ -71,6 +76,7 @@ def build_prompt(payload: dict) -> str:
     matrix_scores = payload.get("matrixScores", {})
     feature_matrix = payload.get("featureMatrix", [])
     profile_summary = payload.get("profileSummary", {})
+    evaluator = "产品经理面试评估助手" if _is_product_manager(payload) else "技术面试评估助手"
 
     answer_text = []
     for index, item in enumerate(answers, start=1):
@@ -90,7 +96,7 @@ def build_prompt(payload: dict) -> str:
         )
 
     return f"""
-你是一名技术面试评估助手。请基于候选人回答、题库关键点和规则版特征矩阵，生成结构化中文反馈。
+你是一名{evaluator}。请基于候选人回答、题库关键点和规则版特征矩阵，生成结构化中文反馈。
 
 重要约束：
 1. 分数已经由后端规则和特征矩阵计算完成，你只能解释分数依据，不允许重新打分或修改分数。
@@ -142,7 +148,7 @@ def build_prompt(payload: dict) -> str:
 def call_llm_for_feedback(payload: dict):
     prompt = build_prompt(payload)
     result = _chat_json(
-        "你是严格输出 JSON 的技术面试评估助手。"
+        f"你是严格输出 JSON 的{'产品经理' if _is_product_manager(payload) else '技术'}面试评估助手。"
         "后端已经完成打分，你只负责基于特征矩阵解释依据、总结优劣势并给出改进建议。",
         prompt,
         0.2,
@@ -178,6 +184,10 @@ def analyze_answer_quality(payload: dict) -> dict:
         "热点数据", "数据库压力", "单线程", "高并发",
         "持久化", "哨兵", "集群", "锁", "降级", "限流"
     ]
+    if _is_product_manager(payload):
+        project_words = ["项目", "负责", "用户", "需求", "目标", "协作", "上线", "验证", "复盘"]
+        technical_words = ["用户研究", "需求", "指标", "优先级", "转化", "留存", "漏斗", "实验", "取舍", "验证"]
+        technical_depth_words = ["样本", "假设", "数据口径", "归因", "成本", "收益", "风险", "对照", "复盘"]
 
     def count_hits(words):
         return sum(1 for word in words if word.lower() in answer_lower or word in answer)
@@ -267,14 +277,22 @@ def build_followup_prompt(payload: dict) -> str:
         "project_detail": "候选人提到项目经历，请追问其个人职责、关键实现、难点处理或结果验证。",
         "normal": "请围绕当前题目和回答，提出一个自然、具体、有区分度的追问问题。"
     }.get(mode, "请围绕当前题目和回答，提出一个自然、具体、有区分度的追问问题。")
+    if _is_product_manager(payload):
+        mode_instruction = "围绕用户问题、证据、方案取舍或效果验证，追问一个尚未说明的关键判断依据。"
+    interviewer = "产品经理面试官" if _is_product_manager(payload) else "技术面试官"
+    followup_focus = (
+        "用户证据、业务目标、优先级依据、跨团队协作或结果指标"
+        if _is_product_manager(payload)
+        else "缺失关键点、实现细节、边界条件、性能权衡或项目落地结果"
+    )
 
     return f"""
-你是一名技术面试官，请根据题目、候选人回答和题库参考信息生成一个追问问题。
+你是一名{interviewer}，请根据题目、候选人回答和题库参考信息生成一个追问问题。
 
 追问要求：
 1. 只输出一个问题，不要解释原因。
 2. 问题必须贴合候选人的当前回答，避免模板化。
-3. 优先追问缺失关键点、实现细节、边界条件、性能权衡或项目落地结果。
+3. 优先追问{followup_focus}。
 4. 问题长度控制在 35 字以内。
 
 追问策略：{mode_instruction}
@@ -299,7 +317,7 @@ def call_llm_for_followup(payload: dict) -> str:
     })
 
     return _chat_completion(
-        "你是一名技术面试官。请只输出一个简洁、具体、贴合回答内容的追问问题。",
+        f"你是一名{'产品经理' if _is_product_manager(payload) else '技术'}面试官。请只输出一个简洁、具体、贴合回答内容的追问问题。",
         prompt,
         0.6,
     ).replace("```", "").strip()
@@ -307,7 +325,7 @@ def call_llm_for_followup(payload: dict) -> str:
 
 def build_profile_summary_prompt(payload: dict) -> str:
     return f"""
-你是一名技术面试成长分析助手。请根据用户历史面试摘要，生成个性化成长总结。
+你是一名面试成长分析助手。请根据用户历史面试摘要，生成个性化成长总结。
 
 用户信息：
 - 用户名：{payload.get("username", "")}
@@ -337,7 +355,7 @@ def build_profile_summary_prompt(payload: dict) -> str:
 def call_llm_for_profile_summary(payload: dict):
     prompt = build_profile_summary_prompt(payload)
     result = _chat_json(
-        "你是一个严格输出 JSON 的技术面试成长分析助手。",
+        "你是一个严格输出 JSON 的面试成长分析助手。",
         prompt,
         0.4,
     )
@@ -487,12 +505,18 @@ def call_llm_for_tailored_resume(payload: dict):
 
 
 def call_llm_for_job_interview_questions(payload: dict):
+    is_product_manager = _is_product_manager(payload)
+    interviewer = "产品经理面试官" if is_product_manager else "技术面试官"
+    coverage = (
+        "覆盖用户问题、产品判断、数据指标、项目协作与场景取舍。"
+        if is_product_manager else "覆盖项目经历、技术深度和场景分析三类问题。"
+    )
     prompt = f"""
-你是一名技术面试官。请根据候选人的真实简历、目标 JD 和技能匹配结果，生成 5 道中文专项模拟面试题。
+你是一名{interviewer}。请根据候选人的真实简历、目标 JD 和技能匹配结果，生成 5 道中文专项模拟面试题。
 
 要求：
 1. 题目必须围绕目标职位和候选人真实经历，不得假定候选人拥有简历中不存在的技能或项目。
-2. 覆盖项目经历、技术深度和场景分析三类问题。
+2. {coverage}
 3. 只输出合法 JSON，不要 markdown。
 
 候选人简历：{payload.get('resumeText', '')}
@@ -506,7 +530,7 @@ def call_llm_for_job_interview_questions(payload: dict):
 {{"questions":[{{"content":"题目", "type":"project|technical|scenario", "difficulty":"easy|medium|hard"}}]}}
 """.strip()
     result = _chat_json(
-        "你是严格输出 JSON 的技术面试官，题目必须基于真实候选人信息。",
+        f"你是严格输出 JSON 的{interviewer}，题目必须基于真实候选人信息。",
         prompt,
         0.45,
     )
