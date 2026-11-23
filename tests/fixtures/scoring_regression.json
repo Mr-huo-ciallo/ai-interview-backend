@@ -1,9 +1,9 @@
 {
-  "description": "S-02 scoring regression samples. labels = human key point judgement (status + verbatim evidence). expected.* ranges apply to the judged path (labels fed through parse_judgement). reviewed=false means the labels and ranges are agent-written seeds awaiting human review.",
+  "description": "S-02 scoring regression samples. labels = human-reviewed key point judgement (status + verbatim evidence). expected.* ranges apply to the judged path (labels fed through parse_judgement). reviewed=true confirms the labels and ranges have been reviewed.",
   "samples": [
     {
       "id": "java-cache-synonyms",
-      "reviewed": false,
+      "reviewed": true,
       "note": "Explains all three cache failure modes without using the exact terms; lexical matching misses them.",
       "role": "java",
       "item": {
@@ -25,7 +25,7 @@
     },
     {
       "id": "java-cache-keyword-stuffing",
-      "reviewed": false,
+      "reviewed": true,
       "note": "Lists the terms without explaining them; lexical matching gives full coverage.",
       "role": "java",
       "item": {
@@ -47,7 +47,7 @@
     },
     {
       "id": "java-cache-off-topic",
-      "reviewed": false,
+      "reviewed": true,
       "note": "No relevant content.",
       "role": "java",
       "item": {
@@ -68,8 +68,274 @@
       "expected": {"keyPointCoverage": [0.0, 0.0], "tech": [0, 35], "match": [0, 35]}
     },
     {
+      "id": "frontend-perf-synonyms",
+      "reviewed": true,
+      "note": "Covers首屏优化, 虚拟滚动, and 性能监控 with concrete wording rather than exact rubric terms.",
+      "role": "frontend",
+      "item": {
+        "question": "中后台页面首屏加载慢且长列表滚动卡顿，你会怎么定位和优化？",
+        "type": "scenario",
+        "difficulty": "medium",
+        "keyPoints": "代码分割与按需加载；虚拟列表；性能指标监控",
+        "scoringFocus": "定位到优化的闭环",
+        "answer": "首先我会用浏览器 Performance 和 Lighthouse 看耗时分布，确认是包体积过大还是渲染阻塞。针对首屏，我会把路由和图表组件改成动态导入，开启构建产物分包和 Gzip 压缩，并把非首屏图片延后加载。针对几千条数据的表格卡顿，只渲染可视区域内的 DOM 节点，滚动时动态复用容器位置。最后在页面接入 FCP、LCP 和长任务埋点，上线后对比优化前后的 P95 耗时来验证效果。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "代码分割与按需加载", "status": "covered", "evidence": "把路由和图表组件改成动态导入，开启构建产物分包和 Gzip 压缩"},
+        {"kind": "keyPoint", "point": "虚拟列表", "status": "covered", "evidence": "只渲染可视区域内的 DOM 节点，滚动时动态复用容器位置"},
+        {"kind": "keyPoint", "point": "性能指标监控", "status": "covered", "evidence": "在页面接入 FCP、LCP 和长任务埋点"},
+        {"kind": "scoringFocus", "point": "定位到优化的闭环", "status": "covered", "evidence": "上线后对比优化前后的 P95 耗时来验证效果"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "tech": [75, 98], "logic": [50, 98]}
+    },
+    {
+      "id": "frontend-vue-followup-depth",
+      "reviewed": true,
+      "note": "Main answer only describes surface behavior; follow-up explains Proxy and dependency tracking.",
+      "role": "frontend",
+      "item": {
+        "question": "Vue 3 的响应式系统是怎么工作的？相比 Vue 2 解决了什么问题？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "Proxy 拦截；依赖收集与派发更新；数组和新增属性限制",
+        "scoringFocus": "原理清晰",
+        "answer": "Vue 3 改用 ES6 的 Proxy 来代理整个对象，不用像 Vue 2 那样递归给每个属性加 getter 和 setter，所以直接给对象加新属性或者按索引改数组都能自动触发视图更新。",
+        "followUpQuestion": "具体在读取和修改属性时，是怎么把变化通知到对应组件的？",
+        "followUpAnswer": "在渲染函数执行读取属性时，Proxy 的 get 拦截器会调用 track，把当前激活的 effect 记录到 target、key 对应的依赖集合里；修改属性触发 set 时调用 trigger，找出这个 key 关联的所有 effect 重新执行调度更新。"
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "Proxy 拦截", "status": "covered", "evidence": "Vue 3 改用 ES6 的 Proxy 来代理整个对象"},
+        {"kind": "keyPoint", "point": "依赖收集与派发更新", "status": "covered", "evidence": "get 拦截器会调用 track，把当前激活的 effect 记录到 target、key 对应的依赖集合里"},
+        {"kind": "keyPoint", "point": "数组和新增属性限制", "status": "covered", "evidence": "直接给对象加新属性或者按索引改数组都能自动触发视图更新"},
+        {"kind": "scoringFocus", "point": "原理清晰", "status": "covered", "evidence": "修改属性触发 set 时调用 trigger，找出这个 key 关联的所有 effect 重新执行调度更新"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "followupGain": [1.0, 1.0], "tech": [75, 98]}
+    },
+    {
+      "id": "frontend-state-vague",
+      "reviewed": true,
+      "note": "Superficial project answer lacking state boundaries, data flow, and trade-offs.",
+      "role": "frontend",
+      "item": {
+        "question": "你在项目中是怎么设计前端状态管理的？遇到过什么问题？",
+        "type": "project",
+        "difficulty": "medium",
+        "keyPoints": "状态分层；单向数据流；缓存与同步边界",
+        "scoringFocus": "个人职责与取舍",
+        "answer": "我们项目里用了 Pinia 做全局状态管理，把接口数据都放进 store 里面，组件直接读就行，用起来挺方便的。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "状态分层", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "单向数据流", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "缓存与同步边界", "status": "partial", "evidence": "把接口数据都放进 store 里面"},
+        {"kind": "scoringFocus", "point": "个人职责与取舍", "status": "missing", "evidence": ""}
+      ],
+      "expected": {"keyPointCoverage": [0.1, 0.25], "tech": [0, 40], "match": [0, 40]}
+    },
+    {
+      "id": "qa-payment-testcase-complete",
+      "reviewed": true,
+      "note": "Thorough QA scenario answer covering boundary cases, idempotency/concurrency, and reconciliation.",
+      "role": "qa",
+      "item": {
+        "question": "如果要测试一个电商订单支付接口，你会如何设计测试用例和质量保障方案？",
+        "type": "scenario",
+        "difficulty": "hard",
+        "keyPoints": "功能与边界用例；幂等与并发异常；对账与回归验证",
+        "scoringFocus": "风险意识与覆盖全面",
+        "answer": "首先拆解正常与边界场景，比如金额为 0、负数、超出限额、优惠券叠加以及订单超时未支付。其次重点覆盖异常和并发风险：模拟用户短时间重复点击或回调重发，验证接口幂等不会重复扣款；构造第三方支付超时和弱网断连，检查订单状态机是否一致。最后把核心支付链路做成自动化接口回归，并在测试环境核对支付流水与订单表账目一致，防止资金差错。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "功能与边界用例", "status": "covered", "evidence": "金额为 0、负数、超出限额、优惠券叠加以及订单超时未支付"},
+        {"kind": "keyPoint", "point": "幂等与并发异常", "status": "covered", "evidence": "模拟用户短时间重复点击或回调重发，验证接口幂等不会重复扣款"},
+        {"kind": "keyPoint", "point": "对账与回归验证", "status": "covered", "evidence": "核心支付链路做成自动化接口回归，并在测试环境核对支付流水与订单表账目一致"},
+        {"kind": "scoringFocus", "point": "风险意识与覆盖全面", "status": "covered", "evidence": "构造第三方支付超时和弱网断连，检查订单状态机是否一致"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "tech": [75, 98], "logic": [55, 98]}
+    },
+    {
+      "id": "qa-bug-triage-partial",
+      "reviewed": true,
+      "note": "Covers incident localization, misses root-cause prevention and regression hardening.",
+      "role": "qa",
+      "item": {
+        "question": "线上出现严重漏测缺陷时，你会如何推动定位和复盘改进？",
+        "type": "project",
+        "difficulty": "medium",
+        "keyPoints": "应急止损与定位；根因分析；流程与自动化防呆",
+        "scoringFocus": "推动闭环改进",
+        "answer": "我先拉开发和运维看日志复现问题，确认影响范围后配合回滚版本，等开发修好后再在预发环境回归验证通过就结束了。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "应急止损与定位", "status": "covered", "evidence": "看日志复现问题，确认影响范围后配合回滚版本"},
+        {"kind": "keyPoint", "point": "根因分析", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "流程与自动化防呆", "status": "missing", "evidence": ""},
+        {"kind": "scoringFocus", "point": "推动闭环改进", "status": "partial", "evidence": "等开发修好后再在预发环境回归验证通过"}
+      ],
+      "expected": {"keyPointCoverage": [0.3, 0.4], "tech": [20, 55], "match": [20, 55]}
+    },
+    {
+      "id": "qa-automation-stuffing",
+      "reviewed": true,
+      "note": "Drops QA buzzwords without explaining test pyramid, ROI, or stability.",
+      "role": "qa",
+      "item": {
+        "question": "团队准备引入自动化测试，你会如何规划分层策略并保证稳定性？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "测试金字塔分层；用例稳定性治理；投入产出比与维护成本",
+        "scoringFocus": "落地可行性",
+        "answer": "自动化测试要做单元测试、集成测试、UI 自动化和回归测试，用测试金字塔分层，注意用例稳定性治理和投入产出比。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "测试金字塔分层", "status": "partial", "evidence": "用测试金字塔分层"},
+        {"kind": "keyPoint", "point": "用例稳定性治理", "status": "partial", "evidence": "注意用例稳定性治理"},
+        {"kind": "keyPoint", "point": "投入产出比与维护成本", "status": "partial", "evidence": "投入产出比"},
+        {"kind": "scoringFocus", "point": "落地可行性", "status": "missing", "evidence": ""}
+      ],
+      "expected": {"keyPointCoverage": [0.5, 0.5], "tech": [20, 50], "match": [20, 50]}
+    },
+    {
+      "id": "python-gil-async-complete",
+      "reviewed": true,
+      "note": "Explains GIL impact and concurrency model selection clearly using natural wording.",
+      "role": "python",
+      "item": {
+        "question": "Python 的 GIL 对并发有什么影响？在实际服务端项目中如何选择多线程、多进程和协程？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "GIL 限制多核 CPU 并行；IO 密集选异步或多线程；CPU 密集选多进程或 C 扩展",
+        "scoringFocus": "场景取舍依据",
+        "answer": "CPython 里的全局解释器锁同一时刻只允许一个线程执行字节码，所以纯计算任务开多线程并不能利用多核，反而会增加上下文切换开销。如果是网络请求、数据库查询这类等待时间长的任务，线程或 asyncio 协程在等待 IO 时会主动让出控制权，因此用协程可以支撑高并发且内存占用低。如果遇到视频转码、大规模数据计算这类吃算力的场景，就改用 multiprocessing 多进程，或者把核心算子下沉到 NumPy 这类释放锁的 C 扩展中。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "GIL 限制多核 CPU 并行", "status": "covered", "evidence": "全局解释器锁同一时刻只允许一个线程执行字节码，所以纯计算任务开多线程并不能利用多核"},
+        {"kind": "keyPoint", "point": "IO 密集选异步或多线程", "status": "covered", "evidence": "网络请求、数据库查询这类等待时间长的任务，线程或 asyncio 协程在等待 IO 时会主动让出控制权"},
+        {"kind": "keyPoint", "point": "CPU 密集选多进程或 C 扩展", "status": "covered", "evidence": "改用 multiprocessing 多进程，或者把核心算子下沉到 NumPy 这类释放锁的 C 扩展中"},
+        {"kind": "scoringFocus", "point": "场景取舍依据", "status": "covered", "evidence": "用协程可以支撑高并发且内存占用低"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "tech": [75, 98], "match": [75, 98]}
+    },
+    {
+      "id": "python-generator-followup",
+      "reviewed": true,
+      "note": "Main answer covers lazy evaluation; follow-up supplies streaming scenario and single-pass boundary.",
+      "role": "python",
+      "item": {
+        "question": "Python 的生成器和普通列表相比有什么优势？适合什么场景？",
+        "type": "technical",
+        "difficulty": "easy",
+        "keyPoints": "惰性求值节省内存；流式处理大数据；单次迭代边界限制",
+        "scoringFocus": "边界条件认知",
+        "answer": "普通列表会一次性把所有元素算出来塞进内存，而带 yield 的生成器每次只按需算出下一个值，内存占用基本是常量级。",
+        "followUpQuestion": "你在项目中一般用它处理什么场景？使用上有哪些容易踩坑的边界？",
+        "followUpAnswer": "在项目中我用它逐行读取几个 GB 的日志文件做清洗，避免直接读进内存导致 OOM。需要注意生成器只能从头到尾消费一次，遍历完就耗尽了，而且不支持按索引随机访问或直接取长度。"
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "惰性求值节省内存", "status": "covered", "evidence": "带 yield 的生成器每次只按需算出下一个值，内存占用基本是常量级"},
+        {"kind": "keyPoint", "point": "流式处理大数据", "status": "covered", "evidence": "逐行读取几个 GB 的日志文件做清洗，避免直接读进内存导致 OOM"},
+        {"kind": "keyPoint", "point": "单次迭代边界限制", "status": "covered", "evidence": "生成器只能从头到尾消费一次，遍历完就耗尽了"},
+        {"kind": "scoringFocus", "point": "边界条件认知", "status": "covered", "evidence": "不支持按索引随机访问或直接取长度"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "followupGain": [1.0, 1.0], "tech": [70, 98]}
+    },
+    {
+      "id": "python-fastapi-off-topic",
+      "reviewed": true,
+      "note": "Non-answer to an async blocking troubleshooting scenario.",
+      "role": "python",
+      "item": {
+        "question": "FastAPI 接口在并发升高时整体响应变慢，你会怎么排查是否阻塞了事件循环？",
+        "type": "scenario",
+        "difficulty": "medium",
+        "keyPoints": "定位同步阻塞调用；线程池或异步改造；压测验证",
+        "scoringFocus": "排查步骤清晰",
+        "answer": "这个我平时没遇到过，一般接口慢的话我会先重启服务或者加机器试试。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "定位同步阻塞调用", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "线程池或异步改造", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "压测验证", "status": "missing", "evidence": ""},
+        {"kind": "scoringFocus", "point": "排查步骤清晰", "status": "missing", "evidence": ""}
+      ],
+      "expected": {"keyPointCoverage": [0.0, 0.0], "tech": [0, 35], "logic": [0, 35]}
+    },
+    {
+      "id": "cs-process-thread-complete",
+      "reviewed": true,
+      "note": "Explains process vs thread clearly covering isolation, scheduling, IPC, and overhead.",
+      "role": "cs_basic",
+      "item": {
+        "question": "操作系统中进程和线程的核心区别是什么？",
+        "type": "technical",
+        "difficulty": "easy",
+        "keyPoints": "资源分配与调度单位；内存空间隔离与共享；通信方式与切换开销",
+        "scoringFocus": "对比准确",
+        "answer": "进程是操作系统分配内存、文件句柄等资源的基本单位，每个进程拥有独立的虚拟地址空间，彼此隔离性好，一个进程崩溃通常不会直接拖垮其他进程；线程是 CPU 调度的基本单位，同一进程下的多个线程共享堆内存和全局变量，各自只保留独立的栈和寄存器上下文。因为不需要切换页表，线程上下文切换和通信成本远低于进程，但共享内存也带来竞态条件，需要锁或原子操作保证并发安全，而进程间通信一般要借助管道、消息队列、共享内存或套接字。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "资源分配与调度单位", "status": "covered", "evidence": "进程是操作系统分配内存、文件句柄等资源的基本单位"},
+        {"kind": "keyPoint", "point": "内存空间隔离与共享", "status": "covered", "evidence": "每个进程拥有独立的虚拟地址空间，彼此隔离性好"},
+        {"kind": "keyPoint", "point": "通信方式与切换开销", "status": "covered", "evidence": "线程上下文切换和通信成本远低于进程"},
+        {"kind": "scoringFocus", "point": "对比准确", "status": "covered", "evidence": "进程间通信一般要借助管道、消息队列、共享内存或套接字"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "tech": [75, 98], "match": [75, 98]}
+    },
+    {
+      "id": "cs-bplustree-partial",
+      "reviewed": true,
+      "note": "Covers disk IO and range queries, misses comparison against hash/binary trees.",
+      "role": "cs_basic",
+      "item": {
+        "question": "数据库索引为什么通常采用 B+ 树，而不是哈希表或普通二叉树？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "多路平衡降低树高减少磁盘 IO；叶子节点链表支持范围查询；与哈希和二叉树的对比",
+        "scoringFocus": "结构特性与查询场景结合",
+        "answer": "B+ 树每个节点可以放很多索引键，树高一般只有三四层，查一次数据最多几次磁盘 IO。另外所有记录都存在叶子节点并且用指针串成有序链表，做区间扫描和排序非常快。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "多路平衡降低树高减少磁盘 IO", "status": "covered", "evidence": "树高一般只有三四层，查一次数据最多几次磁盘 IO"},
+        {"kind": "keyPoint", "point": "叶子节点链表支持范围查询", "status": "covered", "evidence": "叶子节点并且用指针串成有序链表，做区间扫描和排序非常快"},
+        {"kind": "keyPoint", "point": "与哈希和二叉树的对比", "status": "missing", "evidence": ""},
+        {"kind": "scoringFocus", "point": "结构特性与查询场景结合", "status": "covered", "evidence": "做区间扫描和排序非常快"}
+      ],
+      "expected": {"keyPointCoverage": [0.6, 0.7], "tech": [55, 85], "match": [55, 85]}
+    },
+    {
+      "id": "cs-tcp-vague",
+      "reviewed": true,
+      "note": "One-sentence generic answer missing sequence sync, duplex confirmation, and stale SYN.",
+      "role": "cs_basic",
+      "item": {
+        "question": "TCP 建立连接为什么需要三次握手而不是两次？",
+        "type": "technical",
+        "difficulty": "easy",
+        "keyPoints": "确认双方收发能力；同步初始序列号；防止历史失效连接请求",
+        "scoringFocus": "说清两次握手的缺陷",
+        "answer": "三次握手是为了建立可靠的连接，两次的话不太安全，容易出问题。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "确认双方收发能力", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "同步初始序列号", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "防止历史失效连接请求", "status": "missing", "evidence": ""},
+        {"kind": "scoringFocus", "point": "说清两次握手的缺陷", "status": "missing", "evidence": ""}
+      ],
+      "expected": {"keyPointCoverage": [0.0, 0.0], "tech": [0, 35], "match": [0, 35]}
+    },
+    {
       "id": "pm-followup-adds-validation",
-      "reviewed": false,
+      "reviewed": true,
       "note": "Main answer covers segmentation and priority; validation only appears in the follow-up answer.",
       "role": "product_manager",
       "item": {
@@ -88,6 +354,50 @@
         {"kind": "scoringFocus", "point": "结论可验证", "status": "covered", "evidence": "观察两周的次日留存和七日留存"}
       ],
       "expected": {"keyPointCoverage": [1.0, 1.0], "followupGain": [1.0, 1.0], "tech": [70, 98], "logic": [60, 98]}
+    },
+    {
+      "id": "pm-priority-tradeoff-project",
+      "reviewed": true,
+      "note": "Concrete PM project answer covering goal alignment, cost-benefit tradeoff, and stakeholder communication.",
+      "role": "product_manager",
+      "item": {
+        "question": "当业务方和研发对需求排期产生冲突时，你在项目中是如何做优先级取舍并推动落地的？",
+        "type": "project",
+        "difficulty": "medium",
+        "keyPoints": "对齐核心目标与用户价值；评估收益与研发成本；干系人共识与分阶段交付",
+        "scoringFocus": "取舍有依据且落地清晰",
+        "answer": "在上季度改版项目里，运营希望同时上线裂变活动和会员体系，但研发人手只够先做一个。我先和双方对齐季度北极星指标是提升付费转化，再拉取历史漏斗数据测算两者的预期收益和工期成本：会员权益能直接拉动复购且两周可出最小可用版本，裂变开发周期长且依赖额外投放预算。于是我把方案拆成两期，一期先上线核心会员权益验证转化率，二期再做裂变，评审会上拿数据说服运营负责人达成一致，最终一期上线后付费转化提升了 12%。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "对齐核心目标与用户价值", "status": "covered", "evidence": "先和双方对齐季度北极星指标是提升付费转化"},
+        {"kind": "keyPoint", "point": "评估收益与研发成本", "status": "covered", "evidence": "拉取历史漏斗数据测算两者的预期收益和工期成本"},
+        {"kind": "keyPoint", "point": "干系人共识与分阶段交付", "status": "covered", "evidence": "把方案拆成两期，一期先上线核心会员权益验证转化率"},
+        {"kind": "scoringFocus", "point": "取舍有依据且落地清晰", "status": "covered", "evidence": "评审会上拿数据说服运营负责人达成一致，最终一期上线后付费转化提升了 12%"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "tech": [70, 98], "match": [70, 98]}
+    },
+    {
+      "id": "pm-metrics-keyword-stuffing",
+      "reviewed": true,
+      "note": "Lists PM metrics terms without defining metric formulas, user journey, or action triggers.",
+      "role": "product_manager",
+      "item": {
+        "question": "你会如何为一款新上线的内容社区产品设计核心指标体系？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "北极星指标定义；全链路拆解与口径；异常归因与迭代动作",
+        "scoringFocus": "指标可指导决策",
+        "answer": "主要看漏斗、转化率、次日留存、七日留存、埋点和北极星指标，做好数据监控就行。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "北极星指标定义", "status": "partial", "evidence": "北极星指标"},
+        {"kind": "keyPoint", "point": "全链路拆解与口径", "status": "partial", "evidence": "漏斗、转化率、次日留存、七日留存"},
+        {"kind": "keyPoint", "point": "异常归因与迭代动作", "status": "missing", "evidence": ""},
+        {"kind": "scoringFocus", "point": "指标可指导决策", "status": "missing", "evidence": ""}
+      ],
+      "expected": {"keyPointCoverage": [0.3, 0.4], "tech": [20, 50], "match": [20, 50]}
     }
   ]
 }

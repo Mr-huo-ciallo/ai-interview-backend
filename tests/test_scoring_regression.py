@@ -1,8 +1,10 @@
+from collections import Counter
 import json
 from pathlib import Path
 
 import pytest
 
+from scoring.config import SUPPORTED_ROLES
 from scoring.judgement import build_judgement_request, parse_judgement
 from scoring.matrix import build_feature_matrix
 
@@ -46,6 +48,13 @@ def test_judged_scores_stay_within_expected_ranges(sample):
     result = score_sample(sample, judged=True)
     for metric, (low, high) in sample["expected"].items():
         assert low <= result[metric] <= high, f"{metric}={result[metric]} not in [{low}, {high}]"
+
+
+def test_regression_samples_cover_all_roles():
+    counts = Counter(sample["role"] for sample in SAMPLES)
+    for role in SUPPORTED_ROLES:
+        assert counts[role] >= 3, f"role {role} has only {counts[role]} samples, expected >= 3"
+    assert all(sample.get("reviewed") is True for sample in SAMPLES)
 
 
 def test_judgement_fixes_known_lexical_errors():
