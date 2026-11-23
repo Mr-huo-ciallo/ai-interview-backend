@@ -102,3 +102,19 @@ class JobFollowUpModel(Base):
     note = Column(Text, nullable=False)
     completed = Column(Boolean, nullable=False, default=False, server_default="0")
     created_at = Column(DateTime, default=datetime.now)
+
+
+class UserLlmConfigModel(Base):
+    __tablename__ = "user_llm_configs"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_llm_configs_user_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    provider = Column(String(50), nullable=False, default="custom", server_default="custom")
+    api_format = Column(String(20), nullable=False, default="openai", server_default="openai")
+    base_url = Column(String(500), nullable=False)
+    model = Column(String(150), nullable=False)
+    api_key_encrypted = Column(Text, nullable=False, default="")
+    enabled = Column(Boolean, nullable=False, default=True, server_default="1")
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

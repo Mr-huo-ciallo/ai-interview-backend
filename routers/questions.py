@@ -12,6 +12,7 @@ from crud import (
     update_question,
 )
 from db import get_db
+from dependencies import get_optional_current_user
 from llm_client import call_llm_for_followup
 from llm_payloads import build_question_context
 from schemas import FollowUpRequest, QuestionCreateRequest
@@ -33,7 +34,11 @@ def get_questions(role: str = "java", db=Depends(get_db)):
 
 
 @router.post("/api/interview/follow-up")
-def generate_followup(data: FollowUpRequest, db=Depends(get_db)):
+def generate_followup(
+    data: FollowUpRequest,
+    _current_user=Depends(get_optional_current_user),
+    db=Depends(get_db),
+):
     fallback_map = {
         "project": "你在这个项目中具体负责哪些模块？遇到过什么技术难点？",
         "technical": "你能进一步解释一下这个技术点背后的原理或适用场景吗？",

@@ -147,3 +147,20 @@ class JobImportRequest(BaseModel):
 
 class JobImportConfirmRequest(BaseModel):
     jobs: list[JobCreateRequest]
+
+
+class LlmConfigUpdateRequest(BaseModel):
+    provider: str = "custom"
+    apiFormat: str = "openai"
+    baseUrl: str
+    model: str
+    apiKey: str = ""
+    enabled: bool = True
+
+
+class LlmConfigTestRequest(BaseModel):
+    provider: str = "custom"
+    apiFormat: str = "openai"
+    baseUrl: str
+    model: str
+    apiKey: str = ""

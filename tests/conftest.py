@@ -27,6 +27,7 @@ from models import (  # noqa: E402
     JobPostModel,
     ResumeProfileModel,
     ResumeVersionModel,
+    UserLlmConfigModel,
     UserModel,
 )
 
@@ -42,6 +43,7 @@ def client():
             ResumeProfileModel,
             HistoryRecordModel,
             InterviewQuestionModel,
+            UserLlmConfigModel,
             UserModel,
         ):
             db.query(model).delete()

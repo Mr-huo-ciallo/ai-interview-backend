@@ -52,6 +52,7 @@ from scoring.rules import (
 from scoring.matrix import build_feature_matrix, blend_scores
 from routers.career import router as career_router
 from routers.health import router as health_router
+from routers.llm_settings import router as llm_settings_router
 from routers.questions import router as questions_router
 from schemas import (
     HistoryRecord,
@@ -84,6 +85,7 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 app.include_router(career_router)
 app.include_router(health_router)
+app.include_router(llm_settings_router)
 app.include_router(questions_router)
 
 

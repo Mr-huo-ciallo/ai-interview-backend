@@ -1,6 +1,9 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import logging
 import os
+import time
 
 import httpx
 
@@ -19,9 +22,58 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 
+_runtime_llm_config: ContextVar[dict | None] = ContextVar("llm_runtime_config", default=None)
 
-def _require_llm_config() -> None:
-    if not LLM_API_KEY or not LLM_BASE_URL or not LLM_MODEL:
+
+def set_runtime_llm_config(config: dict | None):
+    return _runtime_llm_config.set(config)
+
+
+def reset_runtime_llm_config(token) -> None:
+    _runtime_llm_config.reset(token)
+
+
+@contextmanager
+def use_llm_config(config: dict | None):
+    token = set_runtime_llm_config(config)
+    try:
+        yield
+    finally:
+        reset_runtime_llm_config(token)
+
+
+def is_system_llm_configured() -> bool:
+    return bool(LLM_API_KEY and LLM_BASE_URL and LLM_MODEL)
+
+
+def get_effective_llm_config() -> dict:
+    override = _runtime_llm_config.get()
+    if override:
+        return {
+            "provider": override.get("provider", "custom"),
+            "api_format": override.get("api_format", "openai"),
+            "api_key": override.get("api_key", ""),
+            "base_url": override.get("base_url", ""),
+            "model": override.get("model", ""),
+            "source": override.get("source", "user"),
+        }
+    return {
+        "provider": "system",
+        "api_format": "openai",
+        "api_key": LLM_API_KEY,
+        "base_url": LLM_BASE_URL,
+        "model": LLM_MODEL,
+        "source": "system",
+    }
+
+
+def _require_llm_config(config: dict) -> None:
+    base_url = (config.get("base_url") or "").strip()
+    model = (config.get("model") or "").strip()
+    api_key = (config.get("api_key") or "").strip()
+    provider = config.get("provider", "system")
+
+    if not base_url or not model or (provider != "custom" and not api_key):
         raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
 
 
@@ -32,10 +84,46 @@ def _strip_code_fence(content: str) -> str:
     return content
 
 
-def _chat_completion(system_prompt: str, user_prompt: str, temperature: float) -> str:
-    _require_llm_config()
+def _chat_completion(system_prompt: str, user_prompt: str, temperature: float, timeout: float = 60.0) -> str:
+    config = get_effective_llm_config()
+    _require_llm_config(config)
+
+    api_format = (config.get("api_format") or "openai").lower()
+    base_url = config["base_url"].rstrip("/")
+    api_key = (config.get("api_key") or "").strip()
+    model = config["model"]
+
+    if api_format == "anthropic":
+        api_url = base_url if base_url.endswith("/messages") else f"{base_url}/messages"
+        headers = {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+        }
+        if api_key:
+            headers["x-api-key"] = api_key
+        body = {
+            "model": model,
+            "max_tokens": 2048,
+            "temperature": temperature,
+            "system": system_prompt,
+            "messages": [
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(api_url, headers=headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+        blocks = data.get("content") or []
+        text_parts = [
+            block.get("text", "")
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        return _strip_code_fence("\n".join(text_parts))
+
     body = {
-        "model": LLM_MODEL,
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -43,17 +131,66 @@ def _chat_completion(system_prompt: str, user_prompt: str, temperature: float) -
         "temperature": temperature,
     }
     headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
         "Content-Type": "application/json",
     }
-    api_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    api_url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
 
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=timeout) as client:
         response = client.post(api_url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
 
     return _strip_code_fence(data["choices"][0]["message"]["content"])
+
+
+def test_llm_connection(config: dict) -> dict:
+    started_at = time.perf_counter()
+    try:
+        with use_llm_config(config):
+            reply = _chat_completion(
+                "你是一个连通性测试助手，请只回复 OK。",
+                "请回复 OK",
+                0.0,
+                timeout=20.0,
+            )
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+        return {
+            "ok": True,
+            "message": "连接成功，模型响应正常",
+            "latencyMs": latency_ms,
+            "model": config.get("model", ""),
+            "replyPreview": (reply or "").strip()[:120],
+        }
+    except httpx.HTTPStatusError as exc:
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+        status_code = exc.response.status_code
+        detail = ""
+        try:
+            body_text = exc.response.text.strip()
+            detail = body_text[:200]
+        except Exception:
+            detail = ""
+        message = f"API 返回错误状态码 {status_code}"
+        if detail:
+            message = f"{message}：{detail}"
+        return {
+            "ok": False,
+            "message": message,
+            "latencyMs": latency_ms,
+            "model": config.get("model", ""),
+            "replyPreview": "",
+        }
+    except Exception as exc:
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+        return {
+            "ok": False,
+            "message": f"连接失败：{exc}",
+            "latencyMs": latency_ms,
+            "model": config.get("model", ""),
+            "replyPreview": "",
+        }
 
 
 def _chat_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
