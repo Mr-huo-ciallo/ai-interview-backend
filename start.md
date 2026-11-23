@@ -15,6 +15,7 @@ git -C ai-interview-backend status --short --branch
 | 前后端联调 | 从前端 `src/api/` 中的请求路径查到后端 `main.py` 或 `routers/` 中的处理函数，核对请求和响应字段 |
 | 数据库或后端运行环境 | [后端环境说明](ENVIRONMENTS.md) 说明虚拟环境选择、数据库配置和迁移流程 |
 | 服务器部署 | [Docker Compose 部署文档](deploy/docker-compose.md) 记录服务器目录和部署命令 |
+| 挑选下一项任务 | [积压项与长期故事](../ai-interview-platform/docs/backlog.md) 按优先级列出待办和长期规划 |
 
 ## 本地运行网页与 API
 
