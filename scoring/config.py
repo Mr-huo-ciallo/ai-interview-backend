@@ -1,6 +1,6 @@
 # Bump when key point judgement, feature formulas or weights change, so stored
 # reports can be compared only within the same rule version.
-SCORING_VERSION = "2026.11-s02.1"
+SCORING_VERSION = "2026.11-s02.2"
 
 ROLE_KEYWORDS = {
     "java": {

@@ -74,6 +74,44 @@ def _overall_judgement_source(feature_matrix: list[dict]) -> str:
     return sources.pop() if len(sources) == 1 else "mixed"
 
 
+def _matrix_weight_for_source(judgement_source: str) -> float:
+    if judgement_source in {"llm", "mixed"}:
+        return 1.0
+    if judgement_source == "lexical":
+        return 0.85
+    return 0.7
+
+
+def _merge_llm_question_reports(base_reports: list[dict], llm_reports: list, feature_matrix: list[dict]) -> list[dict]:
+    """Align LLM comments/advice onto feature_matrix order; keep scored key points authoritative."""
+    valid_llm = [item for item in llm_reports if isinstance(item, dict)]
+    by_question: dict[str, list[dict]] = {}
+    for item in valid_llm:
+        key = str(item.get("question") or "").strip()
+        if key:
+            by_question.setdefault(key, []).append(item)
+
+    merged = []
+    for index, base in enumerate(base_reports):
+        matched = None
+        question_key = str(base.get("question") or "").strip()
+        if question_key and by_question.get(question_key):
+            matched = by_question[question_key].pop(0)
+        elif index < len(valid_llm):
+            matched = valid_llm[index]
+
+        features = feature_matrix[index]["features"] if index < len(feature_matrix) else {}
+        merged.append({
+            "question": base["question"],
+            "comment": (matched or {}).get("comment") or base["comment"],
+            "coveredKeyPoints": features.get("coveredKeyPoints", base.get("coveredKeyPoints", [])),
+            "partialKeyPoints": features.get("partialKeyPoints", base.get("partialKeyPoints", [])),
+            "missingKeyPoints": features.get("missingKeyPoints", base.get("missingKeyPoints", [])),
+            "advice": (matched or {}).get("advice") or base["advice"],
+        })
+    return merged
+
+
 @router.post("/api/report/generate")
 def generate_report(
     data: InterviewSubmitRequest,
@@ -141,8 +179,13 @@ def generate_report(
         "totalScore": legacy_total_score,
     }
     matrix_result = build_feature_matrix(data.role, enriched_answers, _judge_key_points(enriched_answers))
-    final_scores = blend_scores(matrix_result["scores"], legacy_scores, matrix_weight=0.7)
     feature_matrix = matrix_result["questionRows"]
+    judgement_source = _overall_judgement_source(feature_matrix)
+    final_scores = blend_scores(
+        matrix_result["scores"],
+        legacy_scores,
+        matrix_weight=_matrix_weight_for_source(judgement_source),
+    )
 
     tech_score = final_scores["techScore"]
     expression_score = final_scores["expressionScore"]
@@ -174,6 +217,7 @@ def generate_report(
             "question": item["question"],
             "comment": "本题已完成作答，系统已结合关键点覆盖、评分重点命中、参考答案相似度和回答结构进行评估。",
             "coveredKeyPoints": features.get("coveredKeyPoints", []),
+            "partialKeyPoints": features.get("partialKeyPoints", []),
             "missingKeyPoints": features.get("missingKeyPoints", []),
             "advice": (
                 "建议补充用户与业务目标、方案取舍依据，以及可检验的结果指标。"
@@ -258,13 +302,11 @@ def generate_report(
         if llm_result.get("historicalSuggestions"):
             historical_suggestions = llm_result["historicalSuggestions"]
         if llm_result.get("questionReports"):
-            question_reports = llm_result["questionReports"]
-            # Key point lists must match the judgement used for scoring.
-            for index, report in enumerate(question_reports):
-                if isinstance(report, dict) and index < len(feature_matrix):
-                    features = feature_matrix[index]["features"]
-                    report["coveredKeyPoints"] = features["coveredKeyPoints"]
-                    report["missingKeyPoints"] = features["missingKeyPoints"]
+            question_reports = _merge_llm_question_reports(
+                question_reports,
+                llm_result["questionReports"],
+                feature_matrix,
+            )
 
     except Exception:
         logger.warning("LLM 调用失败，已回退到规则反馈", exc_info=True)
@@ -291,7 +333,7 @@ def generate_report(
         "featureMatrix": feature_matrix,
         "scoreMeta": {
             "scoringVersion": SCORING_VERSION,
-            "judgementSource": _overall_judgement_source(feature_matrix),
+            "judgementSource": judgement_source,
             "scoreSource": final_scores.get("scoreSource", ""),
             "matrixWeight": final_scores.get("matrixWeight", 0),
             "confidence": final_scores.get("confidence", 0),

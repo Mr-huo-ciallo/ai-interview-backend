@@ -195,47 +195,65 @@ def _merge_answer(item: dict) -> tuple[str, str, str]:
     return main_answer, followup_answer, merged
 
 
+def _concept_richness(assessments: list[dict], target: float = 4.0) -> float:
+    best_by_point: dict[str, float] = {}
+    for item in assessments:
+        credit = STATUS_CREDIT[item["status"]]
+        if credit <= 0:
+            continue
+        point = item["point"]
+        if credit > best_by_point.get(point, 0.0):
+            best_by_point[point] = credit
+    return round(max(0.0, min(1.0, sum(best_by_point.values()) / target)), 3)
+
+
 def extract_features(role: str, item: dict, judged: dict | None = None) -> dict:
     main_answer, followup_answer, answer_text = _merge_answer(item)
     key_points = split_terms(item.get("keyPoints"))
     scoring_focus_terms = split_terms(item.get("scoringFocus"))
     tags = split_terms(item.get("tags"))
     reference_answer = item.get("referenceAnswerGood") or item.get("referenceAnswerBasic") or ""
+    has_followup = bool(followup_answer.strip())
 
     key_assessments = _assess_terms("keyPoint", key_points, main_answer, followup_answer, judged or {})
     focus_assessments = _assess_terms("scoringFocus", scoring_focus_terms, main_answer, followup_answer, judged or {})
     key_coverage = _credit_ratio(key_assessments)
     focus_coverage = _credit_ratio(focus_assessments)
-    covered_key_points = [a["point"] for a in key_assessments if a["status"] != "missing"]
+    covered_key_points = [a["point"] for a in key_assessments if a["status"] == "covered"]
+    partial_key_points = [a["point"] for a in key_assessments if a["status"] == "partial"]
     missing_key_points = [a["point"] for a in key_assessments if a["status"] == "missing"]
-    covered_focus = [a["point"] for a in focus_assessments if a["status"] != "missing"]
+    covered_focus = [a["point"] for a in focus_assessments if a["status"] == "covered"]
     missing_focus = [a["point"] for a in focus_assessments if a["status"] == "missing"]
-    concept_richness = _ratio(len(set(covered_key_points + covered_focus)), 5)
+    concept_richness = _concept_richness(key_assessments + focus_assessments)
 
     newly_covered = [
-        a["point"] for a in key_assessments if a["status"] != "missing" and a["foundIn"] == "followup"
+        a["point"] for a in key_assessments if a["status"] == "covered" and a["foundIn"] == "followup"
     ]
-    main_covered_count = sum(1 for a in key_assessments if a["status"] != "missing" and a["foundIn"] == "main")
-    followup_gain = _ratio(len(newly_covered), max(1, len(key_points) - main_covered_count))
-    if followup_answer and not key_points:
-        followup_gain = min(1.0, _length_quality(followup_answer) * 0.6)
+    main_credit = sum(STATUS_CREDIT[a["status"]] for a in key_assessments if a["foundIn"] == "main")
+    followup_credit = sum(STATUS_CREDIT[a["status"]] for a in key_assessments if a["foundIn"] == "followup")
+    followup_gain = round(
+        max(0.0, min(1.0, followup_credit / max(1.0, len(key_points) - main_credit))),
+        3,
+    )
+    if has_followup and not key_points:
+        followup_gain = round(min(1.0, _length_quality(followup_answer) * 0.6), 3)
 
     reference_similarity = _jaccard_similarity(answer_text, reference_answer)
     depth_terms = PRODUCT_DEPTH_TERMS if role == "product_manager" else TECH_DEPTH_TERMS
     technical_depth = _keyword_density(answer_text, depth_terms)
     logic_structure = max(
-        _keyword_density(answer_text, LOGIC_TERMS),
-        min(0.65, concept_richness * 0.75),
+        _keyword_density(answer_text, LOGIC_TERMS, max_hits=5),
+        min(0.8, round(concept_richness * 0.8, 3)),
     )
     role_match = _term_coverage(answer_text, tags)[0] if tags else round(
         key_coverage * 0.6 + focus_coverage * 0.4,
         3,
     )
     expression_completeness = round(
-        _length_quality(answer_text) * 0.45
-        + _keyword_density(answer_text, EXAMPLE_TERMS, max_hits=3) * 0.15
+        _length_quality(answer_text) * 0.4
+        + concept_richness * 0.3
         + logic_structure * 0.2
-        + concept_richness * 0.2,
+        + _keyword_density(answer_text, EXAMPLE_TERMS, max_hits=2) * 0.1,
         3,
     )
 
@@ -252,6 +270,7 @@ def extract_features(role: str, item: dict, judged: dict | None = None) -> dict:
         "scoringFocusCoverage": focus_coverage,
         "referenceSimilarity": reference_similarity,
         "hasReference": bool(reference_answer.strip()),
+        "hasFollowup": has_followup,
         "conceptRichness": concept_richness,
         "technicalDepth": technical_depth,
         "logicStructure": logic_structure,
@@ -260,6 +279,7 @@ def extract_features(role: str, item: dict, judged: dict | None = None) -> dict:
         "roleMatch": role_match,
         "confidence": confidence,
         "coveredKeyPoints": covered_key_points,
+        "partialKeyPoints": partial_key_points,
         "missingKeyPoints": missing_key_points,
         "coveredScoringFocus": covered_focus,
         "missingScoringFocus": missing_focus,
@@ -269,12 +289,12 @@ def extract_features(role: str, item: dict, judged: dict | None = None) -> dict:
     }
 
 
-def _weighted(parts: list[tuple[float, float]], ref_weight: float, has_reference: bool) -> float:
-    """Weighted sum; without a reference answer its weight is spread over the other parts."""
-    value = sum(feature * weight for feature, weight in parts)
-    if has_reference:
-        return value
-    return value / (1 - ref_weight)
+def _weighted_parts(parts: list[tuple[float, float, bool]]) -> float:
+    """Weighted average over active parts; inactive features redistribute their weight."""
+    active_weight = sum(weight for _, weight, active in parts if active)
+    if active_weight <= 0:
+        return 0.0
+    return sum(feature * weight for feature, weight, active in parts if active) / active_weight
 
 
 def calculate_question_scores(q_type: str, difficulty: str, features: dict) -> dict:
@@ -287,21 +307,49 @@ def calculate_question_scores(q_type: str, difficulty: str, features: dict) -> d
     followup = features["followupGain"]
     role_match = features["roleMatch"]
     has_reference = features.get("hasReference", True)
+    has_followup = features.get("hasFollowup", True)
 
     if q_type == "scenario":
-        tech_parts, ref_weight = [(key, 0.3), (focus, 0.25), (depth, 0.25)], 0.2
-        logic_value = logic * 0.35 + focus * 0.25 + depth * 0.2 + followup * 0.2
+        tech_value = _weighted_parts([
+            (key, 0.3, True),
+            (focus, 0.25, True),
+            (depth, 0.25, True),
+            (ref, 0.2, has_reference),
+        ])
+        logic_value = _weighted_parts([
+            (logic, 0.35, True),
+            (focus, 0.25, True),
+            (depth, 0.2, True),
+            (followup, 0.2, has_followup),
+        ])
     elif q_type == "project":
-        tech_parts, ref_weight = [(key, 0.25), (focus, 0.25), (depth, 0.2), (followup, 0.2)], 0.1
-        logic_value = logic * 0.25 + expression * 0.25 + focus * 0.25 + followup * 0.25
+        tech_value = _weighted_parts([
+            (key, 0.25, True),
+            (focus, 0.25, True),
+            (depth, 0.2, True),
+            (ref, 0.1, has_reference),
+            (followup, 0.2, has_followup),
+        ])
+        logic_value = _weighted_parts([
+            (logic, 0.25, True),
+            (expression, 0.25, True),
+            (focus, 0.25, True),
+            (followup, 0.25, has_followup),
+        ])
     else:
-        tech_parts, ref_weight = [(key, 0.35), (focus, 0.25), (depth, 0.2)], 0.2
+        tech_value = _weighted_parts([
+            (key, 0.35, True),
+            (focus, 0.25, True),
+            (depth, 0.2, True),
+            (ref, 0.2, has_reference),
+        ])
         logic_value = logic * 0.35 + focus * 0.2 + depth * 0.2 + key * 0.25
-    if has_reference:
-        tech_parts.append((ref, ref_weight))
-    tech_value = _weighted(tech_parts, ref_weight, has_reference)
 
-    expression_value = expression * 0.7 + logic * 0.2 + followup * 0.1
+    expression_value = _weighted_parts([
+        (expression, 0.7, True),
+        (logic, 0.2, True),
+        (followup, 0.1, has_followup),
+    ])
     match_value = role_match * 0.4 + key * 0.3 + focus * 0.3
 
     return {
@@ -374,6 +422,6 @@ def blend_scores(matrix_scores: dict, legacy_scores: dict, matrix_weight: float 
     for key in ["techScore", "expressionScore", "logicScore", "matchScore", "totalScore"]:
         result[key] = int(round(matrix_scores[key] * matrix_weight + legacy_scores[key] * legacy_weight))
     result["confidence"] = matrix_scores.get("confidence", 0.0)
-    result["scoreSource"] = "feature_matrix_blended"
+    result["scoreSource"] = "feature_matrix" if matrix_weight >= 1.0 else "feature_matrix_blended"
     result["matrixWeight"] = matrix_weight
     return result

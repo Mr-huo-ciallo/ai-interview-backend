@@ -4,19 +4,24 @@ The LLM only labels each key point / scoring focus term as covered, partial or
 missing and quotes evidence from the answer. Scores are still computed by the
 formulas in scoring.matrix.
 """
+import logging
 import re
+import unicodedata
 
 from scoring.matrix import split_terms
 
 
+logger = logging.getLogger(__name__)
+
 STATUSES = ("covered", "partial", "missing")
 EVIDENCE_MAX_LENGTH = 200
 POINT_FIELDS = (("keyPoint", "keyPoints", "k"), ("scoringFocus", "scoringFocus", "f"))
-WHITESPACE_RE = re.compile(r"\s+")
+NON_WORD_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
 
 
 def _compact(text: str | None) -> str:
-    return WHITESPACE_RE.sub("", text or "").lower()
+    normalized = unicodedata.normalize("NFKC", text or "").lower()
+    return NON_WORD_RE.sub("", normalized)
 
 
 def build_judgement_request(answers: list[dict]) -> list[dict]:
@@ -49,8 +54,9 @@ def parse_judgement(request: list[dict], raw: dict) -> dict[int, dict[tuple[str,
 
     Returns {question_index: {(kind, point): {"status", "evidence", "foundIn"}}}.
     A covered/partial claim whose evidence is not a verbatim excerpt of the
-    answer is downgraded to missing. Points the model omitted are left out so
-    the matrix falls back to lexical matching for them.
+    answer is downgraded to missing. Duplicate valid ids keep the first entry.
+    Points the model omitted are left out so the matrix falls back to lexical
+    matching for them.
     """
     points_by_id = {}
     for question in request:
@@ -66,6 +72,11 @@ def parse_judgement(request: list[dict], raw: dict) -> dict[int, dict[tuple[str,
         status = entry.get("status")
         if status not in STATUSES:
             continue
+        question_bucket = result.setdefault(question["index"], {})
+        point_key = (point["kind"], point["point"])
+        if point_key in question_bucket:
+            logger.warning("忽略重复的关键点判断 id=%s", entry.get("id"))
+            continue
         evidence = str(entry.get("evidence") or "").strip()
         found_in = ""
         if status != "missing":
@@ -78,7 +89,7 @@ def parse_judgement(request: list[dict], raw: dict) -> dict[int, dict[tuple[str,
                 status = "missing"
         if status == "missing":
             evidence = ""
-        result.setdefault(question["index"], {})[(point["kind"], point["point"])] = {
+        question_bucket[point_key] = {
             "status": status,
             "evidence": evidence[:EVIDENCE_MAX_LENGTH],
             "foundIn": found_in,
