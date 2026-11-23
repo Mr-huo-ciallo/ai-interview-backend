@@ -83,7 +83,7 @@ def test_product_scoring_prefers_evidence_based_answer():
 
 
 def test_product_report_fallback_does_not_recommend_java(client, monkeypatch):
-    monkeypatch.setattr("main.call_llm_for_feedback", lambda payload: (_ for _ in ()).throw(RuntimeError("offline")))
+    monkeypatch.setattr("routers.reports.call_llm_for_feedback", lambda payload: (_ for _ in ()).throw(RuntimeError("offline")))
     monkeypatch.setenv("ADMIN_USERNAMES", "pm_admin")
     client.post("/api/auth/register", json={"username": "pm_admin", "password": "password123"})
     login = client.post("/api/auth/login", json={"username": "pm_admin", "password": "password123"})

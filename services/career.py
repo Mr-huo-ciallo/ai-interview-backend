@@ -4,9 +4,6 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from crud import (
-    build_daily_action_plan,
-    build_job_interview_questions,
-    build_job_preparation,
     complete_follow_up,
     create_follow_up,
     create_job,
@@ -19,9 +16,14 @@ from crud import (
     get_resume_profile,
     get_resume_versions,
     save_resume_profile,
-    score_job_match,
     update_job,
     update_job_status,
+)
+from services.career_rules import (
+    build_daily_action_plan,
+    build_job_interview_questions,
+    build_job_preparation,
+    score_job_match,
 )
 from llm_client import (
     call_llm_for_daily_action_plan,

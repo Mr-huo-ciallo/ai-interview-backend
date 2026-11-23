@@ -1,8 +1,8 @@
 import threading
 import time
 
-import main
 from routers import career as career_router
+from routers import reports as reports_router
 from schemas import ResumeExtractionResult, ResumeStructuredData
 
 
@@ -43,7 +43,7 @@ def test_b05_resume_import_runs_in_threadpool(client, monkeypatch):
 
 def test_b07_report_generation_runs_llm_calls_in_parallel_and_caches_profile_ai(client, monkeypatch):
     headers = register_and_login(client, username="parallel_user")
-    main._profile_ai_cache.clear()
+    reports_router._profile_ai_cache.clear()
 
     # 先写入一条历史记录，让报告生成时具备历史摘要
     add_resp = client.post(
@@ -89,8 +89,8 @@ def test_b07_report_generation_runs_llm_calls_in_parallel_and_caches_profile_ai(
             "aiSuggestions": ["继续强化性能排查"],
         }
 
-    monkeypatch.setattr(main, "call_llm_for_feedback", fake_feedback)
-    monkeypatch.setattr(main, "call_llm_for_profile_summary", fake_profile)
+    monkeypatch.setattr(reports_router, "call_llm_for_feedback", fake_feedback)
+    monkeypatch.setattr(reports_router, "call_llm_for_profile_summary", fake_profile)
 
     started = time.perf_counter()
     report_resp = client.post(
@@ -120,3 +120,39 @@ def test_b07_report_generation_runs_llm_calls_in_parallel_and_caches_profile_ai(
     assert profile_resp.status_code == 200
     assert profile_resp.json()["aiSummary"] == "并行缓存的画像摘要"
     assert len(profile_calls) == 1
+
+
+def test_b10_deleting_job_cascades_follow_ups_and_nullifies_resume_version_job_id(client):
+    headers = register_and_login(client, username="fk_cascade_user")
+
+    job_resp = client.post(
+        "/api/career/jobs",
+        headers=headers,
+        json={"title": "Python 后端", "company": "测试科技", "requiredSkills": "Python,FastAPI"},
+    )
+    assert job_resp.status_code == 200
+    job_id = job_resp.json()["job"]["id"]
+
+    fu_resp = client.post(
+        f"/api/career/jobs/{job_id}/follow-ups",
+        headers=headers,
+        json={"dueAt": "2026-12-01", "note": "跟进一面结果"},
+    )
+    assert fu_resp.status_code == 200
+
+    ver_resp = client.post(
+        "/api/career/resume-versions",
+        headers=headers,
+        json={"jobId": job_id, "title": "测试科技定制版", "content": "简历正文"},
+    )
+    assert ver_resp.status_code == 200
+
+    # 删除职位后：跟进记录级联删除，简历版本保留但 jobId 置空
+    del_resp = client.delete(f"/api/career/jobs/{job_id}", headers=headers)
+    assert del_resp.status_code == 200
+
+    dashboard = client.get("/api/career/dashboard", headers=headers).json()
+    assert dashboard["jobs"] == []
+    assert dashboard["followUps"] == []
+    assert len(dashboard["resumeVersions"]) == 1
+    assert dashboard["resumeVersions"][0]["jobId"] is None

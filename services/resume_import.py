@@ -7,9 +7,9 @@ from typing import Protocol
 
 from pypdf import PdfReader
 
-from crud import extract_skills
 from llm_client import call_llm_for_resume_extraction
 from schemas import ResumeExtractionResult, ResumeStructuredData
+from services.career_rules import extract_skills
 
 
 MAX_PDF_BYTES = 8 * 1024 * 1024

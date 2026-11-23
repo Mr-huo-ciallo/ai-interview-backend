@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 
 from db import Base
 
@@ -20,7 +20,12 @@ class HistoryRecordModel(Base):
     __tablename__ = "history_records"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL", name="fk_history_records_user_id"),
+        nullable=True,
+        index=True,
+    )
     role = Column(String(50), nullable=False)
     role_name = Column(String(100), nullable=False)
     total_score = Column(Integer, nullable=False)
@@ -56,7 +61,11 @@ class ResumeProfileModel(Base):
     __table_args__ = (UniqueConstraint("user_id", name="uq_resume_profiles_user_id"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_resume_profiles_user_id"),
+        nullable=False,
+    )
     resume_text = Column(Text, nullable=False)
     skills_json = Column(Text, nullable=False, default="[]")
     target_role = Column(String(100), nullable=True)
@@ -68,7 +77,12 @@ class JobPostModel(Base):
     __tablename__ = "job_posts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_job_posts_user_id"),
+        nullable=False,
+        index=True,
+    )
     title = Column(String(150), nullable=False)
     company = Column(String(150), nullable=False)
     location = Column(String(100), nullable=True)
@@ -85,8 +99,18 @@ class ResumeVersionModel(Base):
     __tablename__ = "resume_versions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    job_id = Column(Integer, nullable=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_resume_versions_user_id"),
+        nullable=False,
+        index=True,
+    )
+    job_id = Column(
+        Integer,
+        ForeignKey("job_posts.id", ondelete="SET NULL", name="fk_resume_versions_job_id"),
+        nullable=True,
+        index=True,
+    )
     title = Column(String(200), nullable=False)
     content = Column(Text, nullable=False)
     source = Column(String(30), nullable=False, default="manual", server_default="manual")
@@ -97,8 +121,18 @@ class JobFollowUpModel(Base):
     __tablename__ = "job_follow_ups"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    job_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_job_follow_ups_user_id"),
+        nullable=False,
+        index=True,
+    )
+    job_id = Column(
+        Integer,
+        ForeignKey("job_posts.id", ondelete="CASCADE", name="fk_job_follow_ups_job_id"),
+        nullable=False,
+        index=True,
+    )
     due_at = Column(String(40), nullable=False, index=True)
     note = Column(Text, nullable=False)
     completed = Column(Boolean, nullable=False, default=False, server_default="0")
@@ -110,7 +144,11 @@ class UserLlmConfigModel(Base):
     __table_args__ = (UniqueConstraint("user_id", name="uq_user_llm_configs_user_id"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_user_llm_configs_user_id"),
+        nullable=False,
+    )
     provider = Column(String(50), nullable=False, default="custom", server_default="custom")
     api_format = Column(String(20), nullable=False, default="openai", server_default="openai")
     base_url = Column(String(500), nullable=False)

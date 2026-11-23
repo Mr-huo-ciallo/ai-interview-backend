@@ -135,7 +135,7 @@ def test_b03_rate_limiting_returns_429_for_llm_endpoints(client, monkeypatch):
     monkeypatch.setenv("RATE_LIMIT_REPORT_MAX", "2")
     monkeypatch.setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
     monkeypatch.setattr("routers.questions.call_llm_for_followup", lambda payload: "")
-    monkeypatch.setattr("main.call_llm_for_feedback", lambda payload: (_ for _ in ()).throw(RuntimeError("offline")))
+    monkeypatch.setattr("routers.reports.call_llm_for_feedback", lambda payload: (_ for _ in ()).throw(RuntimeError("offline")))
 
     followup_payload = {
         "role": "python",
