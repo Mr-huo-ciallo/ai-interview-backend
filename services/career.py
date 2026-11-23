@@ -23,10 +23,12 @@ from services.career_rules import (
     build_daily_action_plan,
     build_job_interview_questions,
     build_job_preparation,
+    parse_job_jd_rule,
     score_job_match,
 )
 from llm_client import (
     call_llm_for_daily_action_plan,
+    call_llm_for_jd_parse,
     call_llm_for_job_interview_questions,
     call_llm_for_job_preparation,
     call_llm_for_tailored_resume,
@@ -100,6 +102,24 @@ class CareerService:
         self._validate_job(data)
         job = create_job(self.db, self.user_id, data)
         return {**job, "match": score_job_match(self._resume(), job)}
+
+    def parse_job_jd(self, raw_text: str, source_url: str = ""):
+        cleaned = (raw_text or "").strip()
+        if len(cleaned) < 10:
+            raise HTTPException(status_code=400, detail="请粘贴至少 10 个字的职位描述文本")
+        parsed = parse_job_jd_rule(cleaned, source_url)
+        try:
+            llm_parsed = call_llm_for_jd_parse(cleaned)
+            merged = {
+                **parsed,
+                **{k: v for k, v in llm_parsed.items() if v},
+                "source": "llm",
+                "sourceUrl": (source_url or "").strip(),
+            }
+            parsed = merged
+        except Exception:
+            logger.warning("JD AI 解析失败，已回退到本地规则解析", exc_info=True)
+        return parsed
 
     def preview_job_import(self, items: list[dict]):
         if not items:

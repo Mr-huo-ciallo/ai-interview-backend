@@ -26,6 +26,13 @@ class HistoryRecordModel(Base):
         nullable=True,
         index=True,
     )
+    job_id = Column(
+        Integer,
+        ForeignKey("job_posts.id", ondelete="SET NULL", name="fk_history_records_job_id"),
+        nullable=True,
+        index=True,
+    )
+    job_title = Column(String(200), nullable=True)
     role = Column(String(50), nullable=False)
     role_name = Column(String(100), nullable=False)
     total_score = Column(Integer, nullable=False)

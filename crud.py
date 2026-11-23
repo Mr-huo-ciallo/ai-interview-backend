@@ -258,8 +258,15 @@ def complete_follow_up(db: Session, user_id: int, follow_up_id: int):
 
 
 def add_history_record(db: Session, record: dict):
+    job_id = record.get("jobId")
+    if job_id is not None:
+        exists = db.query(JobPostModel.id).filter(JobPostModel.id == job_id).first()
+        if not exists:
+            job_id = None
     history = HistoryRecordModel(
         user_id=record.get("userId"),
+        job_id=job_id,
+        job_title=(record.get("jobTitle") or "").strip() or None,
         role=record["role"],
         role_name=record["roleName"],
         total_score=record["totalScore"],
@@ -275,11 +282,13 @@ def add_history_record(db: Session, record: dict):
     return history
 
 
-def get_history_list(db: Session, user_id: int | None = None):
+def get_history_list(db: Session, user_id: int | None = None, job_id: int | None = None):
     query = db.query(HistoryRecordModel)
 
     if user_id is not None:
         query = query.filter(HistoryRecordModel.user_id == user_id)
+    if job_id is not None:
+        query = query.filter(HistoryRecordModel.job_id == job_id)
 
     records = query.order_by(HistoryRecordModel.id.desc()).all()
 
@@ -288,6 +297,8 @@ def get_history_list(db: Session, user_id: int | None = None):
         result.append({
             "id": item.id,
             "userId": item.user_id,
+            "jobId": item.job_id,
+            "jobTitle": item.job_title or "",
             "role": item.role,
             "roleName": item.role_name,
             "totalScore": item.total_score,

@@ -60,6 +60,14 @@ def generate_followup(
 
     try:
         question_meta = get_question_by_role_and_content(db, data.role, data.question)
+        if not question_meta and (data.keyPoints or data.scoringFocus or data.followupFocus or data.tags):
+            question_meta = {
+                "difficulty": data.difficulty or "medium",
+                "tags": data.tags,
+                "keyPoints": data.keyPoints,
+                "scoringFocus": data.scoringFocus,
+                "followupFocus": data.followupFocus,
+            }
         logger.debug("追问题库信息已加载 role=%s found=%s", data.role, bool(question_meta))
         llm_question = call_llm_for_followup({
             "role": data.role,

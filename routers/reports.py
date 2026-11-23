@@ -73,6 +73,17 @@ def generate_report(
 
     for item in data.answers:
         question_meta = get_question_by_role_and_content(db, data.role, item.question)
+        if not question_meta and (
+            item.keyPoints or item.scoringFocus or item.tags or item.referenceAnswerBasic or item.referenceAnswerGood
+        ):
+            question_meta = {
+                "difficulty": item.difficulty or "medium",
+                "tags": item.tags,
+                "keyPoints": item.keyPoints,
+                "scoringFocus": item.scoringFocus,
+                "referenceAnswerBasic": item.referenceAnswerBasic,
+                "referenceAnswerGood": item.referenceAnswerGood,
+            }
 
         enriched_answers.append({
             "question": item.question,
@@ -235,6 +246,8 @@ def generate_report(
     return {
         "role": data.role,
         "roleName": data.roleName,
+        "jobId": data.jobId,
+        "jobTitle": data.jobTitle,
         "submitTime": data.submitTime,
         "answerCount": len(data.answers),
         "totalScore": total_score,

@@ -10,6 +10,7 @@ from schemas import (
     JobCreateRequest,
     JobImportConfirmRequest,
     JobImportRequest,
+    JobJdParseRequest,
     JobStatusRequest,
     ResumeProfileRequest,
     ResumeVersionCreateRequest,
@@ -68,6 +69,14 @@ async def import_resume_pdf(
 @router.post("/jobs")
 def add_career_job(data: JobCreateRequest, service: CareerService = Depends(get_career_service)):
     return {"job": service.add_job(data.model_dump())}
+
+
+@router.post("/jobs/parse-jd")
+def parse_career_job_jd(
+    data: JobJdParseRequest,
+    service: CareerService = Depends(get_career_service),
+):
+    return {"parsed": service.parse_job_jd(data.rawText, data.sourceUrl)}
 
 
 @router.post("/jobs/import/preview")

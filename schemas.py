@@ -19,6 +19,11 @@ class FollowUpRequest(BaseModel):
     question: str
     type: str
     answer: str
+    difficulty: str = ""
+    tags: str = ""
+    keyPoints: str = ""
+    scoringFocus: str = ""
+    followupFocus: str = ""
 
 
 class AnswerItem(BaseModel):
@@ -27,10 +32,18 @@ class AnswerItem(BaseModel):
     answer: str
     followUpQuestion: str = ""
     followUpAnswer: str = ""
+    difficulty: str = ""
+    tags: str = ""
+    keyPoints: str = ""
+    scoringFocus: str = ""
+    referenceAnswerBasic: str = ""
+    referenceAnswerGood: str = ""
 
 
 class InterviewSubmitRequest(BaseModel):
     userId: int | None = None
+    jobId: int | None = None
+    jobTitle: str = ""
     role: str
     roleName: str
     answers: List[AnswerItem]
@@ -39,6 +52,8 @@ class InterviewSubmitRequest(BaseModel):
 
 class HistoryRecord(BaseModel):
     userId: int | None = None
+    jobId: int | None = None
+    jobTitle: str = ""
     role: str
     roleName: str
     totalScore: int
@@ -164,3 +179,8 @@ class LlmConfigTestRequest(BaseModel):
     baseUrl: str
     model: str
     apiKey: str = ""
+
+
+class JobJdParseRequest(BaseModel):
+    rawText: str
+    sourceUrl: str = ""

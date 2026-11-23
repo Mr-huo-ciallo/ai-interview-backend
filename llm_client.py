@@ -768,7 +768,7 @@ def call_llm_for_job_interview_questions(payload: dict):
 匹配结果：{json.dumps(payload.get('match', {}), ensure_ascii=False)}
 
 输出：
-{{"questions":[{{"content":"题目", "type":"project|technical|scenario", "difficulty":"easy|medium|hard"}}]}}
+{{"questions":[{{"content":"题目", "type":"project|technical|scenario", "difficulty":"easy|medium|hard", "tags":"标签1,标签2", "keyPoints":"关键点1；关键点2；关键点3", "scoringFocus":"评分重点1；评分重点2", "followupFocus":"追问关注点"}}]}}
 """.strip()
     result = _chat_json(
         f"你是严格输出 JSON 的{interviewer}，题目必须基于真实候选人信息。",
@@ -776,16 +776,70 @@ def call_llm_for_job_interview_questions(payload: dict):
         0.45,
     )
     questions = result.get("questions", [])
+    fallback_tags = ",".join((payload.get("match", {}).get("requiredSkills") or [])[:4])
     normalized = []
     for index, item in enumerate(questions[:5]):
         if not isinstance(item, dict) or not str(item.get("content", "")).strip():
             continue
+        key_points = str(item.get("keyPoints", "")).strip() or "核心思路；真实案例；效果验证"
+        scoring_focus = str(item.get("scoringFocus", "")).strip() or "逻辑清晰；结合真实项目经历"
+        followup_focus = str(item.get("followupFocus", "")).strip() or "个人贡献、边界条件与结果验证"
         normalized.append({
             "id": f"job-ai-{index + 1}",
             "content": str(item["content"]).strip(),
             "type": item.get("type") if item.get("type") in {"project", "technical", "scenario"} else "technical",
-            "difficulty": item.get("difficulty") if item.get("difficulty") in {"easy", "medium", "hard"} else "medium"
+            "difficulty": item.get("difficulty") if item.get("difficulty") in {"easy", "medium", "hard"} else "medium",
+            "tags": str(item.get("tags", "")).strip() or fallback_tags,
+            "keyPoints": key_points,
+            "scoringFocus": scoring_focus,
+            "followupFocus": followup_focus,
+            "referenceAnswerBasic": f"围绕{key_points.replace('；', '、')}展开说明，并结合真实经历给出可验证结果。",
         })
     if len(normalized) < 3:
         raise ValueError("LLM 未返回足够的专项面试题")
     return normalized
+
+
+def call_llm_for_jd_parse(raw_text: str) -> dict:
+    prompt = f"""
+你是一名招聘 JD 结构化解析助手。请把下面的原始职位描述（JD）解析为标准 JSON。
+
+约束：
+1. 只能提取原文中明确存在的信息，不得猜测或编造公司名、薪资或技能要求。
+2. 未提及的字符串字段返回空字符串，数组字段返回空数组。
+3. requiredSkills 用中文顿号“、”拼接核心技术栈或能力关键词。
+4. 只输出合法 JSON 对象，不要输出 markdown 或额外说明。
+
+原始 JD：
+{raw_text[:8000]}
+
+输出格式：
+{{
+  "title": "职位名称",
+  "company": "公司名称",
+  "location": "工作城市",
+  "salary": "薪资范围",
+  "requiredSkills": "核心技能1、核心技能2",
+  "description": "提炼后的核心职位描述",
+  "responsibilities": ["职责1", "职责2"],
+  "mustHave": ["硬性要求1", "硬性要求2"],
+  "niceToHave": ["加分项1"]
+}}
+""".strip()
+    result = _chat_json(
+        "你是严格输出 JSON 的 JD 结构化解析助手，只能依据原文提取。",
+        prompt,
+        0.1,
+    )
+    return {
+        "source": "llm",
+        "title": str(result.get("title", "")).strip()[:150],
+        "company": str(result.get("company", "")).strip()[:150],
+        "location": str(result.get("location", "")).strip()[:100],
+        "salary": str(result.get("salary", "")).strip()[:100],
+        "requiredSkills": str(result.get("requiredSkills", "")).strip(),
+        "description": str(result.get("description", "")).strip() or raw_text[:2000],
+        "responsibilities": [str(x).strip() for x in (result.get("responsibilities") or []) if str(x).strip()][:6],
+        "mustHave": [str(x).strip() for x in (result.get("mustHave") or []) if str(x).strip()][:6],
+        "niceToHave": [str(x).strip() for x in (result.get("niceToHave") or []) if str(x).strip()][:6],
+    }

@@ -148,16 +148,143 @@ def build_job_interview_questions(job: dict, match: dict):
     missing = match.get("missingSkills", [])
     focus = (matched + missing)[:3] or [job.get("title", "目标岗位")]
     primary_skill = focus[0]
+    secondary_focus = "、".join(missing[:2]) if missing else "业务理解与协作"
     company = job.get("company", "目标公司")
     title = job.get("title", "目标职位")
+    common_tags = ",".join(dict.fromkeys(focus[:4]))
     raw_questions = [
-        ("project", "medium", f"请介绍一段与你申请 {company} 的 {title} 最相关的项目经历：你的职责、关键实现和结果分别是什么？"),
-        ("technical", "medium", f"结合真实经历，说明你如何使用 {primary_skill} 解决具体问题；请补充技术选型和效果验证。"),
-        ("scenario", "hard", f"如果 {company} 的线上核心功能出现性能或稳定性问题，你会如何定位、处理并验证结果？"),
-        ("technical", "hard", f"针对 {primary_skill}，请说明一个边界条件、风险点或性能权衡，以及你的应对方案。"),
-        ("project", "medium", f"该职位还关注 {'、'.join(missing[:2]) if missing else '业务理解与协作'}，你会如何基于真实经历证明自己的学习和交付能力？")
+        (
+            "project",
+            "medium",
+            f"请介绍一段与你申请 {company} 的 {title} 最相关的项目经历：你的职责、关键实现和结果分别是什么？",
+            f"{primary_skill}；个人职责；关键实现；量化结果",
+            "项目背景与职责清晰；能说明关键方案与可验证结果",
+            "深入核实个人贡献边界、技术或业务难点及结果指标",
+        ),
+        (
+            "technical",
+            "medium",
+            f"结合真实经历，说明你如何使用 {primary_skill} 解决具体问题；请补充技术选型和效果验证。",
+            f"{primary_skill}；问题背景；方案选型；效果验证",
+            "原理与选型依据清晰；有真实落地验证",
+            f"追问 {primary_skill} 的底层机制、替代方案对比与监控验证",
+        ),
+        (
+            "scenario",
+            "hard",
+            f"如果 {company} 的线上核心功能出现性能或稳定性问题，你会如何定位、处理并验证结果？",
+            "排查顺序；监控定位；止损与修复方案；回归验证",
+            "排查逻辑严谨；兼顾快速止损、根因定位与长效预防",
+            "追问高并发或极端故障下的降级策略与复盘改进措施",
+        ),
+        (
+            "technical",
+            "hard",
+            f"针对 {primary_skill}，请说明一个边界条件、风险点或性能权衡，以及你的应对方案。",
+            f"{primary_skill}；边界条件；风险控制；方案取舍",
+            "能识别潜在风险与权衡依据；应对方案可落地",
+            "追问实际踩坑案例、容错机制与成本收益权衡",
+        ),
+        (
+            "project",
+            "medium",
+            f"该职位还关注 {secondary_focus}，你会如何基于真实经历证明自己的学习和交付能力？",
+            f"{secondary_focus}；学习迁移；跨团队协作；交付结果",
+            "结合真实案例说明迁移学习与协作推进能力，不空泛表态",
+            "追问具体推动过程、遇到的阻力与最终交付效果",
+        ),
     ]
     return [
-        {"id": f"job-{job['id']}-{index + 1}", "type": question_type, "difficulty": difficulty, "content": content}
-        for index, (question_type, difficulty, content) in enumerate(raw_questions)
+        {
+            "id": f"job-{job['id']}-{index + 1}",
+            "type": question_type,
+            "difficulty": difficulty,
+            "content": content,
+            "tags": common_tags,
+            "keyPoints": key_points,
+            "scoringFocus": scoring_focus,
+            "followupFocus": followup_focus,
+            "referenceAnswerBasic": f"围绕{key_points.replace('；', '、')}展开说明，并结合真实案例给出可验证的结果。",
+        }
+        for index, (question_type, difficulty, content, key_points, scoring_focus, followup_focus) in enumerate(raw_questions)
     ]
+
+
+CITY_KEYWORDS = [
+    "北京", "上海", "深圳", "广州", "杭州", "成都", "南京", "武汉",
+    "苏州", "西安", "重庆", "天津", "长沙", "厦门", "青岛", "远程",
+]
+
+
+def parse_job_jd_rule(raw_text: str, source_url: str = "") -> dict:
+    text = (raw_text or "").strip()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    title = ""
+    company = ""
+    for line in lines[:8]:
+        title_match = re.search(r"(?:职位名称|岗位名称|招聘岗位|岗位|职位)[：:]\s*(.+)", line)
+        if title_match and not title:
+            title = title_match.group(1).strip()[:120]
+            continue
+        company_match = re.search(r"(?:公司名称|招聘公司|公司|企业)[：:]\s*(.+)", line)
+        if company_match and not company:
+            company = company_match.group(1).strip()[:120]
+
+    if not title and lines:
+        title = lines[0][:120]
+    if not company and len(lines) >= 2:
+        candidate = lines[1]
+        if len(candidate) <= 40 and not re.search(r"[。！？!?]", candidate):
+            company = candidate
+
+    salary_match = re.search(
+        r"(\d+(?:\.\d+)?\s*[-~～至]\s*\d+(?:\.\d+)?\s*[kKwW万](?:·\d+薪)?)",
+        text,
+    )
+    salary = salary_match.group(1).replace(" ", "") if salary_match else ""
+
+    location = ""
+    for city in CITY_KEYWORDS:
+        if city in text:
+            location = city
+            break
+
+    skills = extract_skills(text)
+    responsibilities = []
+    must_have = []
+    nice_to_have = []
+    section = ""
+    for line in lines:
+        if re.search(r"(岗位职责|工作职责|职责描述|你将负责)", line):
+            section = "resp"
+            continue
+        if re.search(r"(任职要求|岗位要求|职位要求|硬性要求|基本要求)", line):
+            section = "must"
+            continue
+        if re.search(r"(加分项|优先条件|优先考虑)", line):
+            section = "nice"
+            continue
+        cleaned = re.sub(r"^(?:[\d一二三四五六七八九十]+[、.．)\s]+|[-•*·]\s*)", "", line).strip()
+        if len(cleaned) < 4:
+            continue
+        if section == "resp" and len(responsibilities) < 5:
+            responsibilities.append(cleaned)
+        elif section == "must" and len(must_have) < 5:
+            must_have.append(cleaned)
+        elif section == "nice" and len(nice_to_have) < 4:
+            nice_to_have.append(cleaned)
+
+    return {
+        "source": "rule",
+        "title": title,
+        "company": company,
+        "location": location,
+        "salary": salary,
+        "requiredSkills": "、".join(skills),
+        "description": text[:2000],
+        "sourceUrl": (source_url or "").strip(),
+        "responsibilities": responsibilities,
+        "mustHave": must_have,
+        "niceToHave": nice_to_have,
+    }

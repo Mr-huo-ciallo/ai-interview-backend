@@ -22,8 +22,12 @@ def add_history(
 
 
 @router.get("/list")
-def get_history(current_user=Depends(require_current_user), db=Depends(get_db)):
-    history = get_history_list(db, current_user.id)
+def get_history(
+    job_id: int | None = None,
+    current_user=Depends(require_current_user),
+    db=Depends(get_db),
+):
+    history = get_history_list(db, current_user.id, job_id=job_id)
     return {"history": history}
 
 
