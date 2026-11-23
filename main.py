@@ -7,7 +7,11 @@ try:
 except ImportError:
     pass
 
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 import logging
+import threading
+import time
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -25,9 +29,10 @@ from llm_client import (
 )
 from llm_payloads import build_question_context
 from db import get_db
-from dependencies import get_optional_current_user, require_current_user
+from dependencies import get_admin_usernames, get_optional_current_user, is_admin_user, require_current_user
 from config import validate_runtime_config
 from observability import RequestLoggingMiddleware, configure_logging, get_request_id
+from rate_limit import create_rate_limiter
 from crud import (
     create_user,
     get_user_by_username,
@@ -62,6 +67,28 @@ from schemas import (
 )
 
 logger = logging.getLogger(__name__)
+report_rate_limit = create_rate_limiter("report", "RATE_LIMIT_REPORT_MAX", 10)
+PROFILE_AI_CACHE_TTL_SECONDS = 300
+_profile_ai_cache_lock = threading.Lock()
+_profile_ai_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+def _get_cached_profile_ai(cache_key: tuple) -> dict | None:
+    now = time.monotonic()
+    with _profile_ai_cache_lock:
+        cached = _profile_ai_cache.get(cache_key)
+        if not cached:
+            return None
+        expires_at, value = cached
+        if expires_at <= now:
+            _profile_ai_cache.pop(cache_key, None)
+            return None
+        return value
+
+
+def _set_cached_profile_ai(cache_key: tuple, value: dict) -> None:
+    with _profile_ai_cache_lock:
+        _profile_ai_cache[cache_key] = (time.monotonic() + PROFILE_AI_CACHE_TTL_SECONDS, value)
 
 app = FastAPI()
 
@@ -114,6 +141,7 @@ def read_root():
 @app.post("/api/report/generate")
 def generate_report(
     data: InterviewSubmitRequest,
+    _rate_limit=Depends(report_rate_limit),
     current_user=Depends(get_optional_current_user),
     db=Depends(get_db),
 ):
@@ -218,44 +246,67 @@ def generate_report(
         })
 
     profile_summary = {}
+    profile_ai_payload = None
+    profile_cache_key = None
     user_id = current_user.id if current_user else None
     if user_id:
         try:
             profile_summary = get_user_history_summary(db, user_id)
             user = get_user_by_id(db, user_id)
             if user:
-                try:
-                    profile_llm_result = call_llm_for_profile_summary({
+                profile_cache_key = (
+                    user_id,
+                    profile_summary.get("interviewCount", 0),
+                    profile_summary.get("avgScore", 0),
+                )
+                cached_profile_ai = _get_cached_profile_ai(profile_cache_key)
+                if cached_profile_ai:
+                    profile_summary["aiSummary"] = cached_profile_ai.get("aiSummary", "")
+                    profile_summary["aiSuggestions"] = cached_profile_ai.get("aiSuggestions", [])
+                elif profile_summary.get("interviewCount", 0) > 0:
+                    profile_ai_payload = {
                         "username": user.username,
-                        **profile_summary
-                    })
-                    profile_summary["aiSummary"] = profile_llm_result.get("aiSummary", "")
-                    profile_summary["aiSuggestions"] = profile_llm_result.get("aiSuggestions", [])
-                except Exception:
-                    logger.warning("历史摘要 AI 生成失败，继续使用规则摘要", exc_info=True)
+                        **profile_summary,
+                    }
         except Exception:
             logger.warning("读取历史摘要失败", exc_info=True)
 
+    feedback_payload = {
+        "role": data.role,
+        "roleName": data.roleName,
+        "answers": enriched_answers,
+        "profileSummary": profile_summary,
+        "scores": {
+            "techScore": tech_score,
+            "expressionScore": expression_score,
+            "logicScore": logic_score,
+            "matchScore": match_score,
+            "totalScore": total_score,
+            "confidence": final_scores.get("confidence", 0),
+            "scoreSource": final_scores.get("scoreSource", ""),
+            "matrixWeight": final_scores.get("matrixWeight", 0)
+        },
+        "legacyScores": legacy_scores,
+        "matrixScores": matrix_result["scores"],
+        "featureMatrix": feature_matrix
+    }
+
     try:
-        llm_result = call_llm_for_feedback({
-            "role": data.role,
-            "roleName": data.roleName,
-            "answers": enriched_answers,
-            "profileSummary": profile_summary,
-            "scores": {
-                "techScore": tech_score,
-                "expressionScore": expression_score,
-                "logicScore": logic_score,
-                "matchScore": match_score,
-                "totalScore": total_score,
-                "confidence": final_scores.get("confidence", 0),
-                "scoreSource": final_scores.get("scoreSource", ""),
-                "matrixWeight": final_scores.get("matrixWeight", 0)
-            },
-            "legacyScores": legacy_scores,
-            "matrixScores": matrix_result["scores"],
-            "featureMatrix": feature_matrix
-        })
+        if profile_ai_payload:
+            feedback_ctx = copy_context()
+            profile_ctx = copy_context()
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                feedback_future = executor.submit(feedback_ctx.run, call_llm_for_feedback, feedback_payload)
+                profile_future = executor.submit(profile_ctx.run, call_llm_for_profile_summary, profile_ai_payload)
+                llm_result = feedback_future.result()
+                try:
+                    profile_llm_result = profile_future.result(timeout=1.0)
+                    if profile_cache_key and profile_llm_result:
+                        _set_cached_profile_ai(profile_cache_key, profile_llm_result)
+                except Exception:
+                    logger.warning("历史摘要 AI 并行生成未完成或失败，继续返回本次报告", exc_info=True)
+        else:
+            llm_result = call_llm_for_feedback(feedback_payload)
 
         if llm_result.get("summary"):
             summary = llm_result["summary"]
@@ -348,14 +399,16 @@ def register(data: RegisterRequest, db=Depends(get_db)):
     user = create_user(
         db,
         username=data.username,
-        password_hash=hash_password(data.password)
+        password_hash=hash_password(data.password),
+        is_admin=data.username.strip().lower() in get_admin_usernames(),
     )
 
     return {
         "message": "register success",
         "user": {
             "id": user.id,
-            "username": user.username
+            "username": user.username,
+            "isAdmin": is_admin_user(user),
         }
     }
 
@@ -375,7 +428,8 @@ def login(data: LoginRequest, db=Depends(get_db)):
         "accessToken": create_access_token(user.id, user.username),
         "user": {
             "id": user.id,
-            "username": user.username
+            "username": user.username,
+            "isAdmin": is_admin_user(user),
         }
     }
 
@@ -384,7 +438,13 @@ def login(data: LoginRequest, db=Depends(get_db)):
 def get_current_user(user_id: int, current_user=Depends(require_current_user)):
     if user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问其他用户信息")
-    return {"user": {"id": current_user.id, "username": current_user.username}}
+    return {
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "isAdmin": is_admin_user(current_user),
+        }
+    }
 
 
 @app.get("/api/profile/summary")
@@ -392,19 +452,26 @@ def get_profile_summary(current_user=Depends(require_current_user), db=Depends(g
     user = current_user
 
     summary = get_user_history_summary(db, user.id)
+    cache_key = (user.id, summary.get("interviewCount", 0), summary.get("avgScore", 0))
+    cached = _get_cached_profile_ai(cache_key)
 
     ai_summary = ""
     ai_suggestions = []
 
-    try:
-        llm_result = call_llm_for_profile_summary({
-            "username": user.username,
-            **summary
-        })
-        ai_summary = llm_result.get("aiSummary", "")
-        ai_suggestions = llm_result.get("aiSuggestions", [])
-    except Exception:
-        logger.warning("个人成长摘要 AI 生成失败，已回退到规则摘要", exc_info=True)
+    if cached:
+        ai_summary = cached.get("aiSummary", "")
+        ai_suggestions = cached.get("aiSuggestions", [])
+    else:
+        try:
+            llm_result = call_llm_for_profile_summary({
+                "username": user.username,
+                **summary
+            })
+            ai_summary = llm_result.get("aiSummary", "")
+            ai_suggestions = llm_result.get("aiSuggestions", [])
+            _set_cached_profile_ai(cache_key, llm_result)
+        except Exception:
+            logger.warning("个人成长摘要 AI 生成失败，已回退到规则摘要", exc_info=True)
 
     return {
         "userId": user.id,

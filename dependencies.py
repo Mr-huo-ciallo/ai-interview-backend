@@ -1,3 +1,5 @@
+import os
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -9,6 +11,17 @@ from services.llm_settings import get_user_active_llm_runtime_config
 
 
 security = HTTPBearer(auto_error=False)
+
+
+def get_admin_usernames() -> set[str]:
+    raw = os.getenv("ADMIN_USERNAMES", "")
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
+def is_admin_user(user) -> bool:
+    if not user:
+        return False
+    return bool(getattr(user, "is_admin", False)) or (user.username or "").strip().lower() in get_admin_usernames()
 
 
 def resolve_token_user(credentials: HTTPAuthorizationCredentials, db):
@@ -59,3 +72,12 @@ async def get_optional_current_user(
         yield user
     finally:
         reset_runtime_llm_config(token)
+
+
+def require_admin_user(current_user=Depends(require_current_user)):
+    if not is_admin_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅管理员可执行此操作",
+        )
+    return current_user

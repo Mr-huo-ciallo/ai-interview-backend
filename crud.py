@@ -596,10 +596,11 @@ def get_question_by_role_and_content(db: Session, role: str, content: str):
         return None
 
     return serialize_question(item)
-def create_user(db: Session, username: str, password_hash: str):
+def create_user(db: Session, username: str, password_hash: str, is_admin: bool = False):
     user = UserModel(
         username=username,
-        password_hash=password_hash
+        password_hash=password_hash,
+        is_admin=is_admin,
     )
     db.add(user)
     db.commit()

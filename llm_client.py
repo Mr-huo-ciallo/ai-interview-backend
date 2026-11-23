@@ -3,12 +3,20 @@ from contextvars import ContextVar
 import json
 import logging
 import os
+import re
 import time
 
 import httpx
 
 
 logger = logging.getLogger(__name__)
+_REAL_HTTPX_CLIENT = httpx.Client
+
+
+def _create_http_client(timeout: float):
+    if httpx.Client is _REAL_HTTPX_CLIENT:
+        return httpx.Client(timeout=timeout, follow_redirects=False)
+    return httpx.Client(timeout=timeout)
 
 try:
     from dotenv import load_dotenv
@@ -77,14 +85,60 @@ def _require_llm_config(config: dict) -> None:
         raise RuntimeError("LLM 配置不完整，请设置 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL")
 
 
+JSON_MODE_PROVIDERS = {
+    "openai",
+    "deepseek",
+    "qwen",
+    "zhipu",
+    "moonshot",
+    "gemini",
+    "openrouter",
+    "siliconflow",
+}
+OUTER_CODE_FENCE_RE = re.compile(r"^\s*```(?:[a-zA-Z0-9_-]+)?\s*\r?\n([\s\S]*?)\r?\n```\s*$")
+
+
 def _strip_code_fence(content: str) -> str:
-    content = content.strip()
-    if content.startswith("```"):
-        return content.replace("```json", "").replace("```", "").strip()
-    return content
+    stripped = (content or "").strip()
+    match = OUTER_CODE_FENCE_RE.match(stripped)
+    if match:
+        return match.group(1).strip()
+    return stripped
 
 
-def _chat_completion(system_prompt: str, user_prompt: str, temperature: float, timeout: float = 60.0) -> str:
+def _extract_json_object(content: str) -> dict:
+    cleaned = _strip_code_fence(content)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        parsed = json.loads(cleaned[start:end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM 返回结果必须是 JSON 对象")
+    return parsed
+
+
+def _should_use_json_mode(config: dict) -> bool:
+    if (config.get("api_format") or "openai").lower() != "openai":
+        return False
+    explicit = os.getenv("LLM_ENABLE_JSON_MODE", "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    return (config.get("provider") or "").lower() in JSON_MODE_PROVIDERS
+
+
+def _chat_completion(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    timeout: float = 60.0,
+    json_mode: bool = False,
+) -> str:
     config = get_effective_llm_config()
     _require_llm_config(config)
 
@@ -110,7 +164,7 @@ def _chat_completion(system_prompt: str, user_prompt: str, temperature: float, t
                 {"role": "user", "content": user_prompt},
             ],
         }
-        with httpx.Client(timeout=timeout) as client:
+        with _create_http_client(timeout=timeout) as client:
             response = client.post(api_url, headers=headers, json=body)
             response.raise_for_status()
             data = response.json()
@@ -130,6 +184,8 @@ def _chat_completion(system_prompt: str, user_prompt: str, temperature: float, t
         ],
         "temperature": temperature,
     }
+    if json_mode and _should_use_json_mode(config):
+        body["response_format"] = {"type": "json_object"}
     headers = {
         "Content-Type": "application/json",
     }
@@ -137,7 +193,7 @@ def _chat_completion(system_prompt: str, user_prompt: str, temperature: float, t
         headers["Authorization"] = f"Bearer {api_key}"
     api_url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
 
-    with httpx.Client(timeout=timeout) as client:
+    with _create_http_client(timeout=timeout) as client:
         response = client.post(api_url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
@@ -145,11 +201,26 @@ def _chat_completion(system_prompt: str, user_prompt: str, temperature: float, t
     return _strip_code_fence(data["choices"][0]["message"]["content"])
 
 
+def _safe_status_hint(status_code: int) -> str:
+    hints = {
+        400: "请求参数或模型名称无效",
+        401: "API Key 认证失败",
+        403: "无权访问该接口或模型",
+        404: "接口地址或模型不存在",
+        429: "请求频率超限或额度不足",
+    }
+    if status_code in hints:
+        return f"API 返回错误状态码 {status_code}（{hints[status_code]}）"
+    if 500 <= status_code < 600:
+        return f"上游模型服务异常（状态码 {status_code}）"
+    return f"API 返回错误状态码 {status_code}"
+
+
 def test_llm_connection(config: dict) -> dict:
     started_at = time.perf_counter()
     try:
         with use_llm_config(config):
-            reply = _chat_completion(
+            _chat_completion(
                 "你是一个连通性测试助手，请只回复 OK。",
                 "请回复 OK",
                 0.0,
@@ -161,43 +232,45 @@ def test_llm_connection(config: dict) -> dict:
             "message": "连接成功，模型响应正常",
             "latencyMs": latency_ms,
             "model": config.get("model", ""),
-            "replyPreview": (reply or "").strip()[:120],
         }
     except httpx.HTTPStatusError as exc:
         latency_ms = round((time.perf_counter() - started_at) * 1000)
-        status_code = exc.response.status_code
-        detail = ""
-        try:
-            body_text = exc.response.text.strip()
-            detail = body_text[:200]
-        except Exception:
-            detail = ""
-        message = f"API 返回错误状态码 {status_code}"
-        if detail:
-            message = f"{message}：{detail}"
         return {
             "ok": False,
-            "message": message,
+            "message": _safe_status_hint(exc.response.status_code),
             "latencyMs": latency_ms,
             "model": config.get("model", ""),
-            "replyPreview": "",
         }
-    except Exception as exc:
+    except httpx.TimeoutException:
         latency_ms = round((time.perf_counter() - started_at) * 1000)
         return {
             "ok": False,
-            "message": f"连接失败：{exc}",
+            "message": "连接超时，请检查接口地址与网络连通性",
             "latencyMs": latency_ms,
             "model": config.get("model", ""),
-            "replyPreview": "",
+        }
+    except Exception:
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+        return {
+            "ok": False,
+            "message": "连接失败，请检查 API Base URL、协议格式与模型配置",
+            "latencyMs": latency_ms,
+            "model": config.get("model", ""),
         }
 
 
 def _chat_json(system_prompt: str, user_prompt: str, temperature: float) -> dict:
-    result = json.loads(_chat_completion(system_prompt, user_prompt, temperature))
-    if not isinstance(result, dict):
-        raise ValueError("LLM 返回结果必须是 JSON 对象")
-    return result
+    raw = _chat_completion(system_prompt, user_prompt, temperature, json_mode=True)
+    try:
+        return _extract_json_object(raw)
+    except (ValueError, json.JSONDecodeError):
+        logger.warning("LLM 返回非合法 JSON，正在使用严格格式提示重试一次")
+        retry_prompt = (
+            f"{user_prompt}\n\n"
+            "【重要修正】你上一次输出不是合法 JSON，请仅输出一个严格合法的 JSON 对象，不要包含任何额外解释或多余标记。"
+        )
+        retry_raw = _chat_completion(system_prompt, retry_prompt, 0.0, json_mode=True)
+        return _extract_json_object(retry_raw)
 
 
 def _is_product_manager(payload: dict) -> bool:

@@ -30,10 +30,12 @@ from models import (  # noqa: E402
     UserLlmConfigModel,
     UserModel,
 )
+from rate_limit import reset_rate_limits  # noqa: E402
 
 
 @pytest.fixture()
 def client():
+    reset_rate_limits()
     db = SessionLocal()
     try:
         for model in (

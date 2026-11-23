@@ -8,8 +8,18 @@ def question_payload(content="如何定位接口性能问题？"):
     }
 
 
-def test_question_crud_routes_keep_existing_contract(client):
-    created = client.post("/api/admin/questions", json=question_payload())
+def admin_headers(client, monkeypatch, username="admin_user"):
+    monkeypatch.setenv("ADMIN_USERNAMES", username)
+    client.post("/api/auth/register", json={"username": username, "password": "password123"})
+    login = client.post("/api/auth/login", json={"username": username, "password": "password123"})
+    assert login.status_code == 200
+    assert login.json()["user"]["isAdmin"] is True
+    return {"Authorization": f"Bearer {login.json()['accessToken']}"}
+
+
+def test_question_crud_routes_keep_existing_contract(client, monkeypatch):
+    headers = admin_headers(client, monkeypatch)
+    created = client.post("/api/admin/questions", headers=headers, json=question_payload())
     assert created.status_code == 200
     question_id = created.json()["question"]["id"]
 
@@ -19,12 +29,13 @@ def test_question_crud_routes_keep_existing_contract(client):
 
     updated = client.put(
         f"/api/admin/questions/{question_id}",
+        headers=headers,
         json=question_payload("如何系统定位接口性能瓶颈？"),
     )
     assert updated.status_code == 200
     assert updated.json()["question"]["content"] == "如何系统定位接口性能瓶颈？"
 
-    deleted = client.delete(f"/api/admin/questions/{question_id}")
+    deleted = client.delete(f"/api/admin/questions/{question_id}", headers=headers)
     assert deleted.status_code == 200
     assert client.get("/api/questions", params={"role": "python"}).json()["questions"] == []
 

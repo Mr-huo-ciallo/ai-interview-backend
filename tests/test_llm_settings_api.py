@@ -166,6 +166,6 @@ def test_custom_local_api_allows_empty_key_and_connection_test(client, monkeypat
     assert test_resp.status_code == 200
     result = test_resp.json()
     assert result["ok"] is True
-    assert result["replyPreview"] == "OK"
+    assert "replyPreview" not in result
     assert captured["url"] == "http://localhost:11434/v1/chat/completions"
     assert "Authorization" not in captured["headers"]

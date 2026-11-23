@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from db import get_db
 from dependencies import require_current_user
@@ -43,7 +44,9 @@ async def import_resume_pdf(
 ):
     content = await file.read(MAX_PDF_BYTES + 1)
     try:
-        result = ResumeImportService(LocalTextPdfResumeParser()).import_pdf(
+        parser_service = ResumeImportService(LocalTextPdfResumeParser())
+        result = await run_in_threadpool(
+            parser_service.import_pdf,
             content,
             file.filename or "resume.pdf",
             targetRole.strip(),

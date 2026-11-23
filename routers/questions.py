@@ -12,15 +12,17 @@ from crud import (
     update_question,
 )
 from db import get_db
-from dependencies import get_optional_current_user
+from dependencies import get_optional_current_user, require_admin_user
 from llm_client import call_llm_for_followup
 from llm_payloads import build_question_context
+from rate_limit import create_rate_limiter
 from schemas import FollowUpRequest, QuestionCreateRequest
 from scoring.config import SUPPORTED_ROLES
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+followup_rate_limit = create_rate_limiter("followup", "RATE_LIMIT_FOLLOWUP_MAX", 20)
 
 
 @router.get("/api/questions")
@@ -36,6 +38,7 @@ def get_questions(role: str = "java", db=Depends(get_db)):
 @router.post("/api/interview/follow-up")
 def generate_followup(
     data: FollowUpRequest,
+    _rate_limit=Depends(followup_rate_limit),
     _current_user=Depends(get_optional_current_user),
     db=Depends(get_db),
 ):
@@ -75,12 +78,20 @@ def generate_followup(
 
 
 @router.get("/api/admin/questions")
-def admin_get_questions(role: Optional[str] = None, db=Depends(get_db)):
+def admin_get_questions(
+    role: Optional[str] = None,
+    _admin_user=Depends(require_admin_user),
+    db=Depends(get_db),
+):
     return {"questions": get_all_questions(db, role)}
 
 
 @router.post("/api/admin/questions")
-def admin_add_question(data: QuestionCreateRequest, db=Depends(get_db)):
+def admin_add_question(
+    data: QuestionCreateRequest,
+    _admin_user=Depends(require_admin_user),
+    db=Depends(get_db),
+):
     return {
         "message": "question added successfully",
         "question": add_question(db, data.model_dump()),
@@ -88,7 +99,12 @@ def admin_add_question(data: QuestionCreateRequest, db=Depends(get_db)):
 
 
 @router.put("/api/admin/questions/{question_id}")
-def admin_update_question(question_id: int, data: QuestionCreateRequest, db=Depends(get_db)):
+def admin_update_question(
+    question_id: int,
+    data: QuestionCreateRequest,
+    _admin_user=Depends(require_admin_user),
+    db=Depends(get_db),
+):
     question = update_question(db, question_id, data.model_dump())
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
@@ -96,7 +112,11 @@ def admin_update_question(question_id: int, data: QuestionCreateRequest, db=Depe
 
 
 @router.delete("/api/admin/questions/{question_id}")
-def admin_delete_question(question_id: int, db=Depends(get_db)):
+def admin_delete_question(
+    question_id: int,
+    _admin_user=Depends(require_admin_user),
+    db=Depends(get_db),
+):
     if not delete_question(db, question_id):
         raise HTTPException(status_code=404, detail="Question not found")
     return {"message": "question deleted successfully"}

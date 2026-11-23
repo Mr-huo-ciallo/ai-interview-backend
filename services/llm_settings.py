@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import logging
+import os
+import socket
 from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -164,11 +167,88 @@ def mask_api_key(raw_key: str) -> str:
     return f"{key[:4]}****{key[-4:]}"
 
 
+def _is_private_url_blocking_enabled() -> bool:
+    explicit = os.getenv("LLM_BLOCK_PRIVATE_URLS", "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    return os.getenv("APP_ENV", "development").strip().lower() in {"production", "prod"}
+
+
+def _allowed_private_hosts() -> set[str]:
+    raw = os.getenv("LLM_ALLOWED_PRIVATE_HOSTS", "")
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
+def _is_non_public_ip(ip_obj) -> bool:
+    return (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    )
+
+
+def _check_host_ssrf(hostname: str) -> None:
+    host = (hostname or "").strip().lower().rstrip(".")
+    if not host:
+        raise HTTPException(status_code=400, detail="API Base URL 缺少有效主机名")
+
+    # 始终拦截云元数据服务主机名
+    if host in {"metadata.google.internal", "metadata"}:
+        raise HTTPException(status_code=400, detail="禁止使用云元数据地址作为 API Base URL")
+
+    allowed_hosts = _allowed_private_hosts()
+    if host in allowed_hosts:
+        return
+
+    block_private = _is_private_url_blocking_enabled()
+    if block_private and (host == "localhost" or host.endswith(".local") or host.endswith(".internal")):
+        raise HTTPException(status_code=400, detail="生产环境禁止使用内网或本机地址，如需放行请配置 LLM_ALLOWED_PRIVATE_HOSTS")
+
+    # 检查 IP 字面量
+    try:
+        ip_obj = ipaddress.ip_address(host)
+    except ValueError:
+        ip_obj = None
+
+    if ip_obj is not None:
+        if ip_obj.is_link_local:
+            raise HTTPException(status_code=400, detail="禁止使用链路本地或云元数据地址作为 API Base URL")
+        if block_private and _is_non_public_ip(ip_obj):
+            raise HTTPException(status_code=400, detail="生产环境禁止使用内网或回环地址，如需放行请配置 LLM_ALLOWED_PRIVATE_HOSTS")
+        return
+
+    if not block_private:
+        return
+
+    # 生产环境解析 DNS，拦截指向内网或云元数据的域名
+    try:
+        addr_infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return
+
+    for info in addr_infos:
+        resolved_ip = info[4][0]
+        try:
+            resolved_obj = ipaddress.ip_address(resolved_ip)
+        except ValueError:
+            continue
+        if _is_non_public_ip(resolved_obj):
+            raise HTTPException(status_code=400, detail="生产环境禁止访问解析到内网或保留地址的域名")
+
+
 def _validate_base_url(base_url: str) -> str:
     cleaned = (base_url or "").strip().rstrip("/")
     parsed = urlparse(cleaned)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or not parsed.hostname:
         raise HTTPException(status_code=400, detail="API Base URL 格式无效，必须以 http:// 或 https:// 开头")
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="API Base URL 不允许包含认证信息")
+    _check_host_ssrf(parsed.hostname)
     return cleaned
 
 

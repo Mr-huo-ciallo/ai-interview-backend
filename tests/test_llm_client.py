@@ -67,3 +67,42 @@ def test_chat_completion_rejects_incomplete_configuration(monkeypatch):
 
     with pytest.raises(RuntimeError, match="LLM 配置不完整"):
         llm_client._chat_completion("system", "user", 0.2)
+
+
+def test_strip_code_fence_preserves_inner_code_blocks():
+    raw = '```json\n{"advice": "示例：```python\\nprint(1)\\n```"}\n```'
+    stripped = llm_client._strip_code_fence(raw)
+    assert stripped == '{"advice": "示例：```python\\nprint(1)\\n```"}'
+
+
+def test_chat_json_retries_once_on_invalid_json_and_enables_json_mode_for_supported_provider(monkeypatch):
+    calls = []
+    responses = ["这不是合法 JSON", '{"ok": true, "snippet": "```sql\\nSELECT 1\\n```"}']
+
+    class SequenceClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def post(self, url, headers, json):
+            calls.append(json)
+            return FakeResponse(responses[len(calls) - 1])
+
+    monkeypatch.setattr(llm_client.httpx, "Client", lambda timeout: SequenceClient())
+
+    with llm_client.use_llm_config({
+        "provider": "deepseek",
+        "api_format": "openai",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "api_key": "sk-test",
+    }):
+        result = llm_client._chat_json("system", "user", 0.3)
+
+    assert result == {"ok": True, "snippet": "```sql\nSELECT 1\n```"}
+    assert len(calls) == 2
+    assert calls[0]["response_format"] == {"type": "json_object"}
+    assert calls[1]["temperature"] == 0.0
+    assert "重要修正" in calls[1]["messages"][1]["content"]

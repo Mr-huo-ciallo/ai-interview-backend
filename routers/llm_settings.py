@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from db import get_db
 from dependencies import require_current_user
+from rate_limit import create_rate_limiter
 from schemas import LlmConfigTestRequest, LlmConfigUpdateRequest
 from services.llm_settings import (
     LLM_PROVIDER_PRESETS,
@@ -13,6 +14,7 @@ from services.llm_settings import (
 
 
 router = APIRouter(prefix="/api/settings/llm", tags=["llm-settings"])
+llm_test_rate_limit = create_rate_limiter("llm_test", "RATE_LIMIT_LLM_TEST_MAX", 10)
 
 
 @router.get("/providers")
@@ -37,6 +39,7 @@ def update_llm_settings(
 @router.post("/test")
 def test_llm_settings(
     data: LlmConfigTestRequest,
+    _rate_limit=Depends(llm_test_rate_limit),
     current_user=Depends(require_current_user),
     db=Depends(get_db),
 ):
