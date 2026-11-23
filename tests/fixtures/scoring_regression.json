@@ -1,0 +1,93 @@
+{
+  "description": "S-02 scoring regression samples. labels = human key point judgement (status + verbatim evidence). expected.* ranges apply to the judged path (labels fed through parse_judgement). reviewed=false means the labels and ranges are agent-written seeds awaiting human review.",
+  "samples": [
+    {
+      "id": "java-cache-synonyms",
+      "reviewed": false,
+      "note": "Explains all three cache failure modes without using the exact terms; lexical matching misses them.",
+      "role": "java",
+      "item": {
+        "question": "Redis 缓存常见的三类失效问题是什么？怎么应对？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "缓存穿透；缓存击穿；缓存雪崩",
+        "scoringFocus": "解决方案",
+        "answer": "第一种是查询数据库里根本不存在的数据，每次请求都绕过 Redis 打到数据库，可以用布隆过滤器拦截或者把空结果也缓存起来。第二种是某个热点 key 过期的瞬间大量并发请求同时回源，可以加互斥锁只让一个线程重建，或者热点数据不设过期。第三种是大量 key 在同一时间集中过期，或者 Redis 宕机，可以给过期时间加随机值，并做多级缓存和限流降级。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "缓存穿透", "status": "covered", "evidence": "查询数据库里根本不存在的数据，每次请求都绕过 Redis 打到数据库"},
+        {"kind": "keyPoint", "point": "缓存击穿", "status": "covered", "evidence": "某个热点 key 过期的瞬间大量并发请求同时回源"},
+        {"kind": "keyPoint", "point": "缓存雪崩", "status": "covered", "evidence": "大量 key 在同一时间集中过期，或者 Redis 宕机"},
+        {"kind": "scoringFocus", "point": "解决方案", "status": "covered", "evidence": "可以用布隆过滤器拦截或者把空结果也缓存起来"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "tech": [75, 98], "match": [75, 98]}
+    },
+    {
+      "id": "java-cache-keyword-stuffing",
+      "reviewed": false,
+      "note": "Lists the terms without explaining them; lexical matching gives full coverage.",
+      "role": "java",
+      "item": {
+        "question": "Redis 缓存常见的三类失效问题是什么？怎么应对？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "缓存穿透；缓存击穿；缓存雪崩",
+        "scoringFocus": "解决方案",
+        "answer": "缓存穿透、缓存击穿、缓存雪崩，这些都要注意，要有解决方案。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "缓存穿透", "status": "partial", "evidence": "缓存穿透"},
+        {"kind": "keyPoint", "point": "缓存击穿", "status": "partial", "evidence": "缓存击穿"},
+        {"kind": "keyPoint", "point": "缓存雪崩", "status": "partial", "evidence": "缓存雪崩"},
+        {"kind": "scoringFocus", "point": "解决方案", "status": "missing", "evidence": ""}
+      ],
+      "expected": {"keyPointCoverage": [0.5, 0.5], "tech": [20, 50], "match": [20, 50]}
+    },
+    {
+      "id": "java-cache-off-topic",
+      "reviewed": false,
+      "note": "No relevant content.",
+      "role": "java",
+      "item": {
+        "question": "Redis 缓存常见的三类失效问题是什么？怎么应对？",
+        "type": "technical",
+        "difficulty": "medium",
+        "keyPoints": "缓存穿透；缓存击穿；缓存雪崩",
+        "scoringFocus": "解决方案",
+        "answer": "这个我不太清楚，平时项目里没怎么用过 Redis。",
+        "followUpAnswer": ""
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "缓存穿透", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "缓存击穿", "status": "missing", "evidence": ""},
+        {"kind": "keyPoint", "point": "缓存雪崩", "status": "missing", "evidence": ""},
+        {"kind": "scoringFocus", "point": "解决方案", "status": "missing", "evidence": ""}
+      ],
+      "expected": {"keyPointCoverage": [0.0, 0.0], "tech": [0, 35], "match": [0, 35]}
+    },
+    {
+      "id": "pm-followup-adds-validation",
+      "reviewed": false,
+      "note": "Main answer covers segmentation and priority; validation only appears in the follow-up answer.",
+      "role": "product_manager",
+      "item": {
+        "question": "某功能上线后留存下降，你会如何分析并决定下一步？",
+        "type": "scenario",
+        "difficulty": "medium",
+        "keyPoints": "用户细分；数据验证；优先级取舍",
+        "scoringFocus": "结论可验证",
+        "answer": "我会先把用户按新老用户、渠道和使用频次拆开看，确认下降集中在哪一类人群。然后结合影响面和修复成本排序，先处理影响核心付费用户、改动小的问题。",
+        "followUpAnswer": "我会做一个 A/B 实验，对照组保留旧流程，观察两周的次日留存和七日留存，确认改动确实带来回升再全量。"
+      },
+      "labels": [
+        {"kind": "keyPoint", "point": "用户细分", "status": "covered", "evidence": "把用户按新老用户、渠道和使用频次拆开看"},
+        {"kind": "keyPoint", "point": "数据验证", "status": "covered", "evidence": "做一个 A/B 实验，对照组保留旧流程"},
+        {"kind": "keyPoint", "point": "优先级取舍", "status": "covered", "evidence": "结合影响面和修复成本排序"},
+        {"kind": "scoringFocus", "point": "结论可验证", "status": "covered", "evidence": "观察两周的次日留存和七日留存"}
+      ],
+      "expected": {"keyPointCoverage": [1.0, 1.0], "followupGain": [1.0, 1.0], "tech": [70, 98], "logic": [60, 98]}
+    }
+  ]
+}

@@ -9,10 +9,12 @@ from fastapi import APIRouter, Depends
 from crud import get_question_by_role_and_content, get_user_by_id, get_user_history_summary
 from db import get_db
 from dependencies import get_optional_current_user, require_current_user
-from llm_client import call_llm_for_feedback, call_llm_for_profile_summary
+from llm_client import call_llm_for_feedback, call_llm_for_keypoint_judgement, call_llm_for_profile_summary
 from llm_payloads import build_question_context
 from rate_limit import create_rate_limiter
 from schemas import InterviewSubmitRequest
+from scoring.config import SCORING_VERSION
+from scoring.judgement import build_judgement_request, parse_judgement
 from scoring.matrix import blend_scores, build_feature_matrix
 from scoring.rules import (
     calculate_expression_score,
@@ -52,6 +54,24 @@ def _get_cached_profile_ai(cache_key: tuple) -> dict | None:
 def _set_cached_profile_ai(cache_key: tuple, value: dict) -> None:
     with _profile_ai_cache_lock:
         _profile_ai_cache[cache_key] = (time.monotonic() + PROFILE_AI_CACHE_TTL_SECONDS, value)
+
+
+def _judge_key_points(answers: list[dict]) -> dict:
+    request = build_judgement_request(answers)
+    if not request:
+        return {}
+    try:
+        return parse_judgement(request, call_llm_for_keypoint_judgement(request))
+    except Exception:
+        logger.warning("关键点语义判断失败，已回退到字面匹配", exc_info=True)
+        return {}
+
+
+def _overall_judgement_source(feature_matrix: list[dict]) -> str:
+    sources = {row["features"]["judgementSource"] for row in feature_matrix} - {"none"}
+    if not sources:
+        return "none"
+    return sources.pop() if len(sources) == 1 else "mixed"
 
 
 @router.post("/api/report/generate")
@@ -120,7 +140,7 @@ def generate_report(
         "matchScore": legacy_match_score,
         "totalScore": legacy_total_score,
     }
-    matrix_result = build_feature_matrix(data.role, enriched_answers)
+    matrix_result = build_feature_matrix(data.role, enriched_answers, _judge_key_points(enriched_answers))
     final_scores = blend_scores(matrix_result["scores"], legacy_scores, matrix_weight=0.7)
     feature_matrix = matrix_result["questionRows"]
 
@@ -239,6 +259,12 @@ def generate_report(
             historical_suggestions = llm_result["historicalSuggestions"]
         if llm_result.get("questionReports"):
             question_reports = llm_result["questionReports"]
+            # Key point lists must match the judgement used for scoring.
+            for index, report in enumerate(question_reports):
+                if isinstance(report, dict) and index < len(feature_matrix):
+                    features = feature_matrix[index]["features"]
+                    report["coveredKeyPoints"] = features["coveredKeyPoints"]
+                    report["missingKeyPoints"] = features["missingKeyPoints"]
 
     except Exception:
         logger.warning("LLM 调用失败，已回退到规则反馈", exc_info=True)
@@ -264,6 +290,8 @@ def generate_report(
         "questionReports": question_reports,
         "featureMatrix": feature_matrix,
         "scoreMeta": {
+            "scoringVersion": SCORING_VERSION,
+            "judgementSource": _overall_judgement_source(feature_matrix),
             "scoreSource": final_scores.get("scoreSource", ""),
             "matrixWeight": final_scores.get("matrixWeight", 0),
             "confidence": final_scores.get("confidence", 0),

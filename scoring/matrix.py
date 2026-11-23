@@ -38,7 +38,7 @@ def _normalize_text(value: str | None) -> str:
     return (value or "").strip().lower()
 
 
-def _split_terms(value: str | None) -> list[str]:
+def split_terms(value: str | None) -> list[str]:
     terms = []
     for item in SPLIT_PATTERN.split(value or ""):
         item = item.strip()
@@ -93,6 +93,56 @@ def _term_coverage(answer_text: str, terms: list[str]) -> tuple[float, list[str]
     return _ratio(len(hits), len(terms)), hits, misses
 
 
+STATUS_CREDIT = {"covered": 1.0, "partial": 0.5, "missing": 0.0}
+
+
+def _lexical_evidence(answer_text: str, term: str, context: int = 15) -> str:
+    position = answer_text.lower().find(term.strip().lower())
+    if position < 0:
+        return ""
+    start = max(0, position - context)
+    end = min(len(answer_text), position + len(term.strip()) + context)
+    return answer_text[start:end].strip()
+
+
+def _assess_terms(kind: str, terms: list[str], main_answer: str, followup_answer: str, judged: dict) -> list[dict]:
+    merged_answer = " ".join(part for part in [main_answer, followup_answer] if part.strip())
+    assessments = []
+    for term in terms:
+        judgement = judged.get((kind, term))
+        if judgement:
+            assessments.append({"point": term, "kind": kind, "source": "llm", **judgement})
+            continue
+        status, found_in, evidence = "missing", "", ""
+        if _hit_terms(merged_answer, [term]):
+            status = "covered"
+            found_in = "main" if _hit_terms(main_answer, [term]) else "followup"
+            evidence = _lexical_evidence(main_answer if found_in == "main" else followup_answer, term)
+        assessments.append({
+            "point": term,
+            "kind": kind,
+            "source": "lexical",
+            "status": status,
+            "evidence": evidence,
+            "foundIn": found_in,
+        })
+    return assessments
+
+
+def _credit_ratio(assessments: list[dict]) -> float:
+    if not assessments:
+        return 0.0
+    credit = sum(STATUS_CREDIT[item["status"]] for item in assessments)
+    return round(max(0.0, min(1.0, credit / len(assessments))), 3)
+
+
+def _judgement_source(assessments: list[dict]) -> str:
+    sources = {item["source"] for item in assessments}
+    if not sources:
+        return "none"
+    return sources.pop() if len(sources) == 1 else "mixed"
+
+
 def _jaccard_similarity(left: str, right: str) -> float:
     left_tokens = _tokenize(left)
     right_tokens = _tokenize(right)
@@ -145,21 +195,28 @@ def _merge_answer(item: dict) -> tuple[str, str, str]:
     return main_answer, followup_answer, merged
 
 
-def extract_features(role: str, item: dict) -> dict:
+def extract_features(role: str, item: dict, judged: dict | None = None) -> dict:
     main_answer, followup_answer, answer_text = _merge_answer(item)
-    key_points = _split_terms(item.get("keyPoints"))
-    scoring_focus_terms = _split_terms(item.get("scoringFocus"))
-    tags = _split_terms(item.get("tags"))
+    key_points = split_terms(item.get("keyPoints"))
+    scoring_focus_terms = split_terms(item.get("scoringFocus"))
+    tags = split_terms(item.get("tags"))
     reference_answer = item.get("referenceAnswerGood") or item.get("referenceAnswerBasic") or ""
 
-    key_coverage, covered_key_points, missing_key_points = _term_coverage(answer_text, key_points)
-    focus_coverage, covered_focus, missing_focus = _term_coverage(answer_text, scoring_focus_terms)
+    key_assessments = _assess_terms("keyPoint", key_points, main_answer, followup_answer, judged or {})
+    focus_assessments = _assess_terms("scoringFocus", scoring_focus_terms, main_answer, followup_answer, judged or {})
+    key_coverage = _credit_ratio(key_assessments)
+    focus_coverage = _credit_ratio(focus_assessments)
+    covered_key_points = [a["point"] for a in key_assessments if a["status"] != "missing"]
+    missing_key_points = [a["point"] for a in key_assessments if a["status"] == "missing"]
+    covered_focus = [a["point"] for a in focus_assessments if a["status"] != "missing"]
+    missing_focus = [a["point"] for a in focus_assessments if a["status"] == "missing"]
     concept_richness = _ratio(len(set(covered_key_points + covered_focus)), 5)
 
-    main_key_hits = set(_hit_terms(main_answer, key_points))
-    merged_key_hits = set(covered_key_points)
-    newly_covered = [term for term in key_points if term in merged_key_hits and term not in main_key_hits]
-    followup_gain = _ratio(len(newly_covered), max(1, len(key_points) - len(main_key_hits)))
+    newly_covered = [
+        a["point"] for a in key_assessments if a["status"] != "missing" and a["foundIn"] == "followup"
+    ]
+    main_covered_count = sum(1 for a in key_assessments if a["status"] != "missing" and a["foundIn"] == "main")
+    followup_gain = _ratio(len(newly_covered), max(1, len(key_points) - main_covered_count))
     if followup_answer and not key_points:
         followup_gain = min(1.0, _length_quality(followup_answer) * 0.6)
 
@@ -194,6 +251,7 @@ def extract_features(role: str, item: dict) -> dict:
         "keyPointCoverage": key_coverage,
         "scoringFocusCoverage": focus_coverage,
         "referenceSimilarity": reference_similarity,
+        "hasReference": bool(reference_answer.strip()),
         "conceptRichness": concept_richness,
         "technicalDepth": technical_depth,
         "logicStructure": logic_structure,
@@ -206,7 +264,17 @@ def extract_features(role: str, item: dict) -> dict:
         "coveredScoringFocus": covered_focus,
         "missingScoringFocus": missing_focus,
         "newlyCoveredByFollowup": newly_covered,
+        "keyPointAssessments": key_assessments + focus_assessments,
+        "judgementSource": _judgement_source(key_assessments + focus_assessments),
     }
+
+
+def _weighted(parts: list[tuple[float, float]], ref_weight: float, has_reference: bool) -> float:
+    """Weighted sum; without a reference answer its weight is spread over the other parts."""
+    value = sum(feature * weight for feature, weight in parts)
+    if has_reference:
+        return value
+    return value / (1 - ref_weight)
 
 
 def calculate_question_scores(q_type: str, difficulty: str, features: dict) -> dict:
@@ -218,16 +286,20 @@ def calculate_question_scores(q_type: str, difficulty: str, features: dict) -> d
     expression = features["expressionCompleteness"]
     followup = features["followupGain"]
     role_match = features["roleMatch"]
+    has_reference = features.get("hasReference", True)
 
     if q_type == "scenario":
-        tech_value = key * 0.3 + focus * 0.25 + depth * 0.25 + ref * 0.2
+        tech_parts, ref_weight = [(key, 0.3), (focus, 0.25), (depth, 0.25)], 0.2
         logic_value = logic * 0.35 + focus * 0.25 + depth * 0.2 + followup * 0.2
     elif q_type == "project":
-        tech_value = key * 0.25 + focus * 0.25 + depth * 0.2 + ref * 0.1 + followup * 0.2
+        tech_parts, ref_weight = [(key, 0.25), (focus, 0.25), (depth, 0.2), (followup, 0.2)], 0.1
         logic_value = logic * 0.25 + expression * 0.25 + focus * 0.25 + followup * 0.25
     else:
-        tech_value = key * 0.35 + focus * 0.25 + ref * 0.2 + depth * 0.2
+        tech_parts, ref_weight = [(key, 0.35), (focus, 0.25), (depth, 0.2)], 0.2
         logic_value = logic * 0.35 + focus * 0.2 + depth * 0.2 + key * 0.25
+    if has_reference:
+        tech_parts.append((ref, ref_weight))
+    tech_value = _weighted(tech_parts, ref_weight, has_reference)
 
     expression_value = expression * 0.7 + logic * 0.2 + followup * 0.1
     match_value = role_match * 0.4 + key * 0.3 + focus * 0.3
@@ -272,10 +344,10 @@ def aggregate_scores(role: str, question_rows: list[dict]) -> dict:
     }
 
 
-def build_feature_matrix(role: str, answers: list[dict]) -> dict:
+def build_feature_matrix(role: str, answers: list[dict], judgements: dict | None = None) -> dict:
     question_rows = []
     for index, item in enumerate(answers, start=1):
-        features = extract_features(role, item)
+        features = extract_features(role, item, (judgements or {}).get(index))
         dimension_scores = calculate_question_scores(
             item.get("type", "technical"),
             item.get("difficulty", "medium"),
